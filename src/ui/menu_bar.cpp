@@ -26,8 +26,8 @@ void render_menu_bar(App& app) {
             config_load(app);
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Export PNG (TODO)")) {
-            // Phase 2
+        if (ImGui::MenuItem("Export PNG", "Ctrl+E")) {
+            modals_request_export_png();
         }
         ImGui::EndMenu();
     }

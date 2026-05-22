@@ -83,4 +83,7 @@ void App::render() {
 
     // Modals
     modals_render(stream_store, plot_store);
+    if (modals_png_path_ready()) {
+        pending_png_path = modals_consume_png_path();
+    }
 }

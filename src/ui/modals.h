@@ -13,5 +13,14 @@ bool modals_csv_pending();
 // Consume the pending CSV (filename and raw text)
 void modals_consume_csv(std::string& filename, std::string& raw);
 
+// Open the "Export PNG" modal on next frame
+void modals_request_export_png();
+
+// True if the user confirmed a PNG save path
+bool modals_png_path_ready();
+
+// Consume the confirmed PNG save path
+std::string modals_consume_png_path();
+
 // Render all modals — call each frame
 void modals_render(StreamStore& ss, PlotStore& ps);

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <ctime>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -160,6 +161,111 @@ void modals_consume_csv(std::string& filename, std::string& raw) {
     g_csv_pending = false;
 }
 
+// ── PNG export modal ───────────────────────────────────────────────────────
+
+#ifndef __EMSCRIPTEN__
+struct ExportPngState {
+    bool pending_open = false;
+    char path_buf[512] = {};
+    std::future<std::string> save_dialog_future;
+};
+static ExportPngState g_png;
+static bool        g_png_ready = false;
+static std::string g_png_confirmed_path;
+
+// Opens a native OS save dialog on a background thread.
+static std::string native_save_png_dialog_sync(const std::string& suggested) {
+#ifdef __APPLE__
+    char cmd[1024];
+    size_t slash = suggested.rfind('/');
+    std::string defname = (slash != std::string::npos)
+        ? suggested.substr(slash + 1)
+        : suggested;
+    std::snprintf(cmd, sizeof(cmd),
+        "osascript -e 'POSIX path of (choose file name default name \"%s\""
+        " with prompt \"Save chart as PNG\")' 2>/dev/null",
+        defname.c_str());
+    FILE* fp = popen(cmd, "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) return s;
+        }
+    }
+#else
+    char cmd[1024];
+    size_t slash = suggested.rfind('/');
+    std::string defname = (slash != std::string::npos)
+        ? suggested.substr(slash + 1)
+        : suggested;
+    std::snprintf(cmd, sizeof(cmd),
+        "zenity --file-selection --save --confirm-overwrite"
+        " --filename='%s' --title='Save PNG'"
+        " --file-filter='PNG files (*.png) | *.png' 2>/dev/null",
+        defname.c_str());
+    FILE* fp = popen(cmd, "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) {
+                if (s.size() < 4 || s.substr(s.size() - 4) != ".png")
+                    s += ".png";
+                return s;
+            }
+        }
+    }
+    fp = popen("kdialog --getsavefilename . '*.png' 2>/dev/null", "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) return s;
+        }
+    }
+#endif
+    return "";
+}
+
+static void generate_default_png_path(char* buf, size_t bufsz) {
+    std::string dir;
+#ifdef __APPLE__
+    if (const char* home = getenv("HOME")) {
+        dir = std::string(home) + "/Desktop/";
+    }
+#endif
+    time_t t = time(nullptr);
+    struct tm* ti = localtime(&t);
+    char ts[32];
+    std::strftime(ts, sizeof(ts), "%Y-%m-%d_%H-%M-%S", ti);
+    std::snprintf(buf, bufsz, "%sfinx_%s.png", dir.c_str(), ts);
+}
+#endif // !__EMSCRIPTEN__
+
+void modals_request_export_png() {
+#ifndef __EMSCRIPTEN__
+    generate_default_png_path(g_png.path_buf, sizeof(g_png.path_buf));
+    g_png.pending_open = true;
+#endif
+}
+
+bool modals_png_path_ready() { return g_png_ready; }
+
+std::string modals_consume_png_path() {
+    g_png_ready = false;
+    return std::move(g_png_confirmed_path);
+}
+
 // ── HTTP test sentinel ─────────────────────────────────────────────────────
 
 static constexpr uint32_t kTestSentinel = 0xFFFFFFFFu;
@@ -265,7 +371,56 @@ static std::string build_preview(const ParsedTable& t, int max_rows = 5) {
 void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 #ifndef __EMSCRIPTEN__
     poll_native_dialog();
-#endif
+
+    // Poll the PNG save dialog future
+    if (g_png.save_dialog_future.valid() &&
+        g_png.save_dialog_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        std::string chosen = g_png.save_dialog_future.get();
+        if (!chosen.empty()) {
+            std::strncpy(g_png.path_buf, chosen.c_str(), sizeof(g_png.path_buf) - 1);
+        }
+    }
+
+    // Open PNG export popup if requested
+    if (g_png.pending_open) {
+        g_png.pending_open = false;
+        ImGui::OpenPopup("Export PNG##modal");
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(480, 130), ImGuiCond_Always);
+    if (ImGui::BeginPopupModal("Export PNG##modal", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::Text("Save path:");
+        ImGui::SetNextItemWidth(-80.0f);
+        ImGui::InputText("##png_path", g_png.path_buf, sizeof(g_png.path_buf));
+        ImGui::SameLine();
+        bool dialog_busy = g_png.save_dialog_future.valid();
+        if (dialog_busy) ImGui::BeginDisabled();
+        if (ImGui::Button("Browse...")) {
+            std::string suggested(g_png.path_buf);
+            g_png.save_dialog_future = std::async(std::launch::async,
+                [suggested]() { return native_save_png_dialog_sync(suggested); });
+        }
+        if (dialog_busy) ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Save", ImVec2(100, 0))) {
+            if (g_png.path_buf[0] != '\0') {
+                g_png_confirmed_path = g_png.path_buf;
+                g_png_ready = true;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+#endif // !__EMSCRIPTEN__
 
     // Check for pending CSV loaded from file picker (web) or native dialog
     if (g_csv_pending) {
