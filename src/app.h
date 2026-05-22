@@ -5,9 +5,10 @@
 
 class App {
 public:
-    void init();
-    void render();    // called every frame
-    void shutdown();
+    void     init();
+    void     render();    // called every frame
+    void     shutdown();
+    uint32_t new_plot();  // create a new plot with an auto-generated name
 
     StreamStore stream_store;
     PlotStore   plot_store;

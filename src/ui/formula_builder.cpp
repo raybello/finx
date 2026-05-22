@@ -411,7 +411,14 @@ void formula_builder_render(App& app) {
         src.bindings    = g_fb.bindings;
 
         if (g_fb.edit_id == 0) {
-            app.stream_store.add_formula(g_fb.name_buf, src);
+            uint32_t sid = app.stream_store.add_formula(g_fb.name_buf, src);
+            uint32_t pid = app.new_plot();
+            if (Plot* p = app.plot_store.find(pid)) {
+                PlotSeries s;
+                s.stream_id = sid;
+                s.label     = "Series 1";
+                p->series.push_back(s);
+            }
             g_fb.error_msg.clear();
             ImGui::CloseCurrentPopup();
         } else {

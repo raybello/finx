@@ -167,7 +167,8 @@ void render_plot_inspector(App& app) {
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::Combo("##xfield", &x_idx, x_combo.c_str())) {
                 if (x_idx >= 0 && x_idx < (int)x_fields.size()) {
-                    ser.x_field = x_fields[x_idx];
+                    ser.x_field  = x_fields[x_idx];
+                    plot->needs_fit = true;
                 }
             }
 
@@ -178,7 +179,8 @@ void render_plot_inspector(App& app) {
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::Combo("##yfield", &y_idx, y_combo.c_str())) {
                 if (y_idx >= 0 && y_idx < (int)numeric_fields.size()) {
-                    ser.y_field = numeric_fields[y_idx];
+                    ser.y_field  = numeric_fields[y_idx];
+                    plot->needs_fit = true;
                 }
             }
 

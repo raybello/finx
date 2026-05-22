@@ -55,6 +55,11 @@ void render_plot_windows(App& app) {
         char plot_id[128];
         std::snprintf(plot_id, sizeof(plot_id), "##iplot_%u", plot.id);
 
+        if (plot.needs_fit) {
+            ImPlot::SetNextAxesToFit();
+            plot.needs_fit = false;
+        }
+
         if (!ImPlot::BeginPlot(plot_id, avail, plot_flags)) {
             ImGui::End();
             continue;

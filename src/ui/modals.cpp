@@ -1,5 +1,6 @@
 #include "ui/modals.h"
 #include "ui/formula_builder.h"
+#include "app.h"
 #include "data/stream_store.h"
 #include "data/plot_store.h"
 #include "io/csv_parser.h"
@@ -401,7 +402,8 @@ static std::string build_preview(const ParsedTable& t, int max_rows = 5) {
 
 // ── Main render ────────────────────────────────────────────────────────────
 
-void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
+void modals_render(App& app) {
+    StreamStore& ss = app.stream_store;
 #ifndef __EMSCRIPTEN__
     poll_native_dialog();
 
@@ -918,10 +920,22 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         (g_edit_http_id != 0 || g_edit_yf_id != 0) ? "Save Changes"
         : (is_formula ? "Open Formula Builder" : "Confirm");
 
+    // Helper: create a new plot pre-loaded with the given stream
+    auto auto_create_plot = [&](uint32_t stream_id) {
+        uint32_t pid = app.new_plot();
+        if (Plot* p = app.plot_store.find(pid)) {
+            PlotSeries s;
+            s.stream_id = stream_id;
+            s.label     = "Series 1";
+            p->series.push_back(s);
+        }
+    };
+
     if (ImGui::Button(confirm_label, ImVec2(160, 0))) {
         g_state.modal_error.clear();
         if (g_state.source_type_idx == 0) {
-            ss.add_csv(g_state.name, g_state.csv_filename, g_state.csv_raw, g_state.csv_path);
+            uint32_t sid = ss.add_csv(g_state.name, g_state.csv_filename, g_state.csv_raw, g_state.csv_path);
+            auto_create_plot(sid);
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();
         } else if (g_state.source_type_idx == 1) {
@@ -952,7 +966,8 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                 g_edit_http_id = 0;
             } else {
                 g_http_draft = src; // remember for next open (create mode only)
-                ss.add_http(g_state.name, src);
+                uint32_t sid = ss.add_http(g_state.name, src);
+                auto_create_plot(sid);
             }
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();
@@ -968,7 +983,8 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                 ss.update_yfinance(g_edit_yf_id, g_state.name, src);
                 g_edit_yf_id = 0;
             } else {
-                ss.add_yfinance(g_state.name, src);
+                uint32_t sid = ss.add_yfinance(g_state.name, src);
+                auto_create_plot(sid);
             }
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();

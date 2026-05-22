@@ -92,4 +92,5 @@ struct Plot {
     std::string y2_label;
     bool        show_legend = true;
     bool        open        = true;
+    bool        needs_fit   = false; // set true to auto-fit axes on next frame
 };
