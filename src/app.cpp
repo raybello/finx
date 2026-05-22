@@ -73,10 +73,17 @@ void App::render() {
 
     ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
 
-    // Build default layout once
-    static bool first_time = true;
-    if (first_time) {
-        first_time = false;
+    // DockSpace first — loads the ini-saved node hierarchy into context so
+    // DockBuilderGetNode can see existing splits before we decide whether to
+    // rebuild.
+    ImGui::DockSpace(dockspace_id, ImVec2(0,0), ImGuiDockNodeFlags_PassthruCentralNode);
+
+    // Rebuild initial layout only when the dockspace has no splits yet
+    // (first ever launch, or after the ini was cleared via Reset Layout).
+    // Running this every launch would regenerate child-node IDs and break
+    // the dock-state saved for plot windows in imgui.ini.
+    ImGuiDockNode* root = ImGui::DockBuilderGetNode(dockspace_id);
+    if (!root || root->IsLeafNode()) {
         ImGui::DockBuilderRemoveNode(dockspace_id);
         ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
@@ -88,9 +95,13 @@ void App::render() {
         ImGui::DockBuilderDockWindow("Data Streams##panel",  dock_left);
         ImGui::DockBuilderDockWindow("Plot Inspector##panel", dock_right);
         ImGui::DockBuilderFinish(dockspace_id);
+
+        dock_center_id = dock_main;
     }
 
-    ImGui::DockSpace(dockspace_id, ImVec2(0,0), ImGuiDockNodeFlags_PassthruCentralNode);
+    // Keep dock_center_id current (survives Reset Layout and node recreation)
+    if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockspace_id))
+        dock_center_id = central->ID;
 
     // Menu bar rendered inside the host window
     render_menu_bar(*this);

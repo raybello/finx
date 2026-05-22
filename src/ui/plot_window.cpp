@@ -26,6 +26,12 @@ void render_plot_windows(App& app) {
 
         ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
 
+        // Dock to the center area the first time this window appears.
+        // ImGuiCond_FirstUseEver skips this when imgui.ini already has a
+        // saved dock slot, so user-moved positions are respected on restart.
+        if (app.dock_center_id != 0)
+            ImGui::SetNextWindowDockID(app.dock_center_id, ImGuiCond_FirstUseEver);
+
         if (!ImGui::Begin(win_title, &plot.open, win_flags)) {
             ImGui::End();
             continue;
