@@ -1,4 +1,5 @@
 #include "ui/modals.h"
+#include "ui/formula_builder.h"
 #include "data/stream_store.h"
 #include "data/plot_store.h"
 #include "io/csv_parser.h"
@@ -259,12 +260,17 @@ void modals_request_export_png() {
 #endif
 }
 
+#ifndef __EMSCRIPTEN__
 bool modals_png_path_ready() { return g_png_ready; }
 
 std::string modals_consume_png_path() {
     g_png_ready = false;
     return std::move(g_png_confirmed_path);
 }
+#else
+bool modals_png_path_ready() { return false; }
+std::string modals_consume_png_path() { return ""; }
+#endif
 
 // ── HTTP test sentinel ─────────────────────────────────────────────────────
 
@@ -495,6 +501,10 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     if (ImGui::RadioButton("HTTP GET", g_state.source_type_idx == 1)) {
         g_state.source_type_idx = 1;
     }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Formula", g_state.source_type_idx == 2)) {
+        g_state.source_type_idx = 2;
+    }
 
     ImGui::Separator();
     ImGui::Spacing();
@@ -537,6 +547,18 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
             ImGui::TextDisabled("File preview will appear here after loading.");
             ImGui::EndChild();
         }
+    }
+
+    // ── Formula section ─────────────────────────────────────────────────────
+    if (g_state.source_type_idx == 2) {
+        ImGui::BeginChild("##formula_info", ImVec2(-1, available_h), false);
+        ImGui::TextDisabled("Use the Formula Builder to define a new derived stream.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "A derived stream computes a new column from an arithmetic "
+            "expression over fields in other streams (e.g. "
+            "(births / total_pop) * 100). Click 'Open Formula Builder' below.");
+        ImGui::EndChild();
     }
 
     // ── HTTP section ────────────────────────────────────────────────────────
@@ -682,22 +704,26 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     ImGui::Separator();
     ImGui::Spacing();
 
+    bool is_formula = (g_state.source_type_idx == 2);
     bool can_confirm = false;
     if (g_state.source_type_idx == 0) {
         can_confirm = g_state.csv_ready;
-    } else {
+    } else if (g_state.source_type_idx == 1) {
         can_confirm = (g_state.url_buf[0] != '\0');
+    } else {
+        can_confirm = true; // Formula: always allow (opens a new modal)
     }
 
-    if (!can_confirm) {
-        ImGui::BeginDisabled();
-    }
+    if (!can_confirm) ImGui::BeginDisabled();
 
-    if (ImGui::Button("Confirm", ImVec2(120, 0))) {
+    const char* confirm_label = is_formula ? "Open Formula Builder" : "Confirm";
+    if (ImGui::Button(confirm_label, ImVec2(160, 0))) {
         g_state.modal_error.clear();
         if (g_state.source_type_idx == 0) {
             ss.add_csv(g_state.name, g_state.csv_filename, g_state.csv_raw, g_state.csv_path);
-        } else {
+            g_state = AddStreamState{};
+            ImGui::CloseCurrentPopup();
+        } else if (g_state.source_type_idx == 1) {
             HttpSource src;
             src.url_template = g_state.url_buf;
             src.json_path    = g_state.json_path;
@@ -716,15 +742,17 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                 src.field_map.push_back(e);
             }
             ss.add_http(g_state.name, src);
+            g_state = AddStreamState{};
+            ImGui::CloseCurrentPopup();
+        } else {
+            // Formula: close this modal and open the formula builder
+            formula_builder_request_open(0);
+            g_state = AddStreamState{};
+            ImGui::CloseCurrentPopup();
         }
-        // Reset state
-        g_state = AddStreamState{};
-        ImGui::CloseCurrentPopup();
     }
 
-    if (!can_confirm) {
-        ImGui::EndDisabled();
-    }
+    if (!can_confirm) ImGui::EndDisabled();
 
     ImGui::SameLine();
 

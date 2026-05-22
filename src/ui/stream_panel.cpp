@@ -1,5 +1,6 @@
 #include "ui/stream_panel.h"
 #include "ui/modals.h"
+#include "ui/formula_builder.h"
 #include "app.h"
 #include "data/stream_store.h"
 #include "imgui.h"
@@ -30,15 +31,23 @@ void render_stream_panel(App& app) {
     auto& streams = app.stream_store.all();
 
     ImGui::BeginChild("##stream_list",
-                       ImVec2(-1, ImGui::GetContentRegionAvail().y - 36.0f),
+                       ImVec2(-1, ImGui::GetContentRegionAvail().y - 66.0f),
                        false);
 
     uint32_t delete_id  = 0;
     uint32_t refresh_id = 0;
 
+    uint32_t recalc_id = 0;
+    uint32_t edit_formula_id = 0;
+
     for (auto& ds : streams) {
         // Icon tag
-        const char* type_tag = (ds.source_type == SourceType::CSV_FILE) ? "[CSV]" : "[HTTP]";
+        const char* type_tag;
+        switch (ds.source_type) {
+            case SourceType::CSV_FILE: type_tag = "[CSV]";  break;
+            case SourceType::HTTP_GET: type_tag = "[HTTP]"; break;
+            default:                   type_tag = "[EXPR]"; break;
+        }
 
         // Status dot color
         ImVec4 dot_color;
@@ -67,13 +76,13 @@ void render_stream_panel(App& app) {
         // Context menu
         if (ImGui::BeginPopupContextItem(label)) {
             if (ds.source_type == SourceType::HTTP_GET) {
-                if (ImGui::MenuItem("Refresh")) {
-                    refresh_id = ds.id;
-                }
+                if (ImGui::MenuItem("Refresh")) refresh_id = ds.id;
             }
-            if (ImGui::MenuItem("Delete")) {
-                delete_id = ds.id;
+            if (ds.source_type == SourceType::FORMULA) {
+                if (ImGui::MenuItem("Edit Formula"))   edit_formula_id = ds.id;
+                if (ImGui::MenuItem("Recalculate"))    recalc_id       = ds.id;
             }
+            if (ImGui::MenuItem("Delete")) delete_id = ds.id;
             ImGui::EndPopup();
         }
 
@@ -100,6 +109,17 @@ void render_stream_panel(App& app) {
             for (const auto& fd : ds.schema) {
                 ImGui::TextDisabled("  %s [%s]", fd.name.c_str(), field_type_label(fd.type));
             }
+            if (ds.source_type == SourceType::FORMULA) {
+                const auto& expr = ds.formula_source.expression;
+                std::string preview = expr.size() > 60
+                    ? expr.substr(0, 57) + "..."
+                    : expr;
+                ImGui::TextDisabled("  expr: %s", preview.c_str());
+                for (const auto& b : ds.formula_source.bindings) {
+                    ImGui::TextDisabled("    %s = field '%s'",
+                                        b.alias.c_str(), b.field_name.c_str());
+                }
+            }
             ImGui::TreePop();
         }
 
@@ -113,9 +133,14 @@ void render_stream_panel(App& app) {
     if (ImGui::Button("+ Add Stream", ImVec2(-1, 0))) {
         modals_request_add_stream();
     }
+    if (ImGui::Button("+ Add Formula Stream", ImVec2(-1, 0))) {
+        formula_builder_request_open(0);
+    }
 
-    if (delete_id)  app.stream_store.remove(delete_id);
-    if (refresh_id) app.stream_store.refresh(refresh_id);
+    if (delete_id)       app.stream_store.remove(delete_id);
+    if (refresh_id)      app.stream_store.refresh(refresh_id);
+    if (recalc_id)       app.stream_store.evaluate_formula(recalc_id);
+    if (edit_formula_id) formula_builder_request_open(edit_formula_id);
 
     ImGui::End();
 }
