@@ -1,5 +1,9 @@
 #include "SDL.h"
+#ifdef __EMSCRIPTEN__
+#include <SDL_opengles2.h>
+#else
 #include "SDL_opengl.h"
+#endif
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
@@ -58,13 +62,20 @@ static void main_loop() {
 int main(int /*argc*/, char** /*argv*/) {
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,   24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#ifdef __EMSCRIPTEN__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,         0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,  SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,         0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,  SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,          1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,            24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,          8);
+#endif
 
     g_window = SDL_CreateWindow(
         "finx",
@@ -109,7 +120,11 @@ int main(int /*argc*/, char** /*argv*/) {
     }
 
     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
     ImGui_ImplOpenGL3_Init("#version 330");
+#endif
 
     g_app.init();
 

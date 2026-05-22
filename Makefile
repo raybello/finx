@@ -61,7 +61,7 @@ WEB_DIR     := docs
 WEB_OBJ_DIR := build/web-obj
 WEB_OUT     := $(WEB_DIR)/index.html
 WEB_CXX     := em++
-WEB_EMS     := -s USE_SDL=2
+WEB_EMS     := -s USE_SDL=2 -DIMGUI_IMPL_OPENGL_ES3
 
 WEB_CXXFLAGS := $(COMMON_CXXFLAGS) -Os $(WEB_EMS) -fno-exceptions \
     -DIMGUI_DISABLE_DEMO_WINDOWS
@@ -69,6 +69,7 @@ WEB_CXXFLAGS := $(COMMON_CXXFLAGS) -Os $(WEB_EMS) -fno-exceptions \
 WEB_LDFLAGS := \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \
+    -s STACK_SIZE=1048576 \
     -s NO_EXIT_RUNTIME=0 \
     -s USE_WEBGL2=1 \
     -s MIN_WEBGL_VERSION=2 \
@@ -77,7 +78,7 @@ WEB_LDFLAGS := \
     -s ASSERTIONS=1 \
     -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
     -s EXPORTED_RUNTIME_METHODS='["ccall","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
-    -s EXPORTED_FUNCTIONS='["_main","_finx_csv_loaded","_finx_http_result"]' \
+    -s EXPORTED_FUNCTIONS='["_main","_finx_csv_loaded"]' \
     $(WEB_EMS) \
     --shell-file shell.html
 
