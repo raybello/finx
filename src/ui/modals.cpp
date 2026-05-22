@@ -320,6 +320,10 @@ struct AddStreamState {
 };
 
 static AddStreamState g_state;
+static HttpSource     g_http_draft;
+
+HttpSource modals_get_http_draft()                    { return g_http_draft; }
+void       modals_set_http_draft(const HttpSource& s) { g_http_draft = s; }
 
 void modals_request_add_stream() {
     g_state.pending_open = true;
@@ -476,6 +480,30 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     // Open the popup if requested
     if (g_state.pending_open) {
         g_state.pending_open = false;
+        // Pre-fill HTTP fields from the last-used draft so the user doesn't have to retype them
+        if (!g_http_draft.url_template.empty()) {
+            std::strncpy(g_state.url_buf, g_http_draft.url_template.c_str(), sizeof(g_state.url_buf) - 1);
+            std::strncpy(g_state.json_path, g_http_draft.json_path.c_str(), sizeof(g_state.json_path) - 1);
+            g_state.params.clear();
+            for (const auto& [k, v] : g_http_draft.params) {
+                ParamRow r;
+                std::strncpy(r.key, k.c_str(), sizeof(r.key) - 1);
+                std::strncpy(r.val, v.c_str(), sizeof(r.val) - 1);
+                g_state.params.push_back(r);
+            }
+            g_state.fmap.clear();
+            for (const auto& fm : g_http_draft.field_map) {
+                FMapRow r;
+                std::strncpy(r.out, fm.output_name.c_str(), sizeof(r.out) - 1);
+                std::strncpy(r.key, fm.json_key.c_str(), sizeof(r.key) - 1);
+                switch (fm.type) {
+                    case FieldType::TIMESTAMP: r.type_idx = 1; break;
+                    case FieldType::STRING:    r.type_idx = 2; break;
+                    default:                   r.type_idx = 0; break;
+                }
+                g_state.fmap.push_back(r);
+            }
+        }
         ImGui::OpenPopup("Add Data Stream##modal");
     }
 
@@ -741,6 +769,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                 }
                 src.field_map.push_back(e);
             }
+            g_http_draft = src; // remember for next open
             ss.add_http(g_state.name, src);
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();

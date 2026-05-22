@@ -18,6 +18,83 @@
 #include <emscripten/fetch.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+// ── Clipboard bridge ────────────────────────────────────────────────────────
+// SDL2's clipboard functions don't talk to the actual browser clipboard.
+// We override ImGui's clipboard callbacks with EM_JS functions that use the
+// real Web Clipboard API (navigator.clipboard) plus a fallback paste-event
+// listener that caches text in window.__finx_clipboard synchronously.
+
+static std::string g_clipboard_buf;
+
+// Install a DOM paste listener so that when the user pastes (Ctrl+V or
+// right-click → Paste) the text lands in window.__finx_clipboard before
+// ImGui reads it on the next frame.
+EM_JS(void, js_setup_clipboard, (), {
+    window.__finx_clipboard = '';
+    // Cache pasted text immediately (synchronous path)
+    document.addEventListener('paste', function(e) {
+        var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+        if (text) window.__finx_clipboard = text;
+    }, true);
+    // Also try async read on Ctrl+V so the cache stays fresh even when
+    // the paste event fires before the clipboard permission is granted
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(function(t) {
+                    if (t) window.__finx_clipboard = t;
+                }).catch(function() {});
+            }
+        }
+    }, true);
+});
+
+EM_JS(char*, js_clipboard_read, (), {
+    var text = window.__finx_clipboard || '';
+    var len  = lengthBytesUTF8(text) + 1;
+    var ptr  = _malloc(len);
+    stringToUTF8(text, ptr, len);
+    return ptr;
+});
+
+EM_JS(void, js_clipboard_write, (const char* ctext), {
+    var text = UTF8ToString(ctext);
+    window.__finx_clipboard = text;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() {
+            // fallback: execCommand copy via hidden textarea
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+            document.body.appendChild(ta);
+            ta.focus(); ta.select();
+            try { document.execCommand('copy'); } catch(e) {}
+            document.body.removeChild(ta);
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(ta);
+    }
+});
+
+static const char* imgui_clipboard_get(void*) {
+    char* raw = js_clipboard_read();
+    if (raw) { g_clipboard_buf = raw; free(raw); }
+    return g_clipboard_buf.c_str();
+}
+
+static void imgui_clipboard_set(void*, const char* text) {
+    g_clipboard_buf = text ? text : "";
+    js_clipboard_write(text ? text : "");
+}
+#endif // __EMSCRIPTEN__ clipboard bridge
+
 static App           g_app;
 static SDL_Window*   g_window     = nullptr;
 static SDL_GLContext g_gl_context;
@@ -146,6 +223,12 @@ int main(int /*argc*/, char** /*argv*/) {
     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
 #ifdef __EMSCRIPTEN__
     ImGui_ImplOpenGL3_Init("#version 300 es");
+    // Override ImGui clipboard AFTER ImGui_ImplSDL2_InitForOpenGL, which
+    // installs its own SDL-based clipboard functions that don't reach the browser.
+    js_setup_clipboard();
+    io.GetClipboardTextFn = imgui_clipboard_get;
+    io.SetClipboardTextFn = imgui_clipboard_set;
+    io.ClipboardUserData  = nullptr;
 #else
     ImGui_ImplOpenGL3_Init("#version 330");
 #endif
