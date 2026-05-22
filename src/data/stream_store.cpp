@@ -5,13 +5,15 @@
 
 uint32_t StreamStore::add_csv(const std::string& name,
                                const std::string& filename,
-                               const std::string& raw_text)
+                               const std::string& raw_text,
+                               const std::string& path)
 {
     DataStream ds;
     ds.id          = next_id_++;
     ds.name        = name;
     ds.source_type = SourceType::CSV_FILE;
     ds.csv_source.filename = filename;
+    ds.csv_source.path     = path;
     ds.csv_source.raw_text = raw_text;
     ds.status = StreamStatus::LOADING;
     streams_.push_back(std::move(ds));
@@ -22,12 +24,13 @@ uint32_t StreamStore::add_csv(const std::string& name,
     return id;
 }
 
-uint32_t StreamStore::add_csv_placeholder(const std::string& name, const std::string& filename) {
+uint32_t StreamStore::add_csv_placeholder(const std::string& name, const std::string& filename, const std::string& path) {
     DataStream ds;
     ds.id          = next_id_++;
     ds.name        = name;
     ds.source_type = SourceType::CSV_FILE;
     ds.csv_source.filename = filename;
+    ds.csv_source.path     = path;
     ds.status      = StreamStatus::ERROR_STATE;
     ds.error_msg   = "CSV data not available — please re-upload the file.";
     streams_.push_back(std::move(ds));

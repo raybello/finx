@@ -63,6 +63,7 @@ EM_JS(void, js_open_file_picker, (), {
 
 static bool        g_csv_pending = false;
 static std::string g_csv_name;
+static std::string g_csv_path;
 static std::string g_csv_data;
 
 static std::future<std::string> g_dialog_future;
@@ -137,6 +138,7 @@ static void poll_native_dialog() {
     ss << f.rdbuf();
 
     g_csv_name    = std::move(fname);
+    g_csv_path    = path;
     g_csv_data    = ss.str();
     g_csv_pending = true;
 }
@@ -189,6 +191,7 @@ struct AddStreamState {
     // CSV
     bool        csv_ready   = false;
     std::string csv_filename;
+    std::string csv_path;
     std::string csv_raw;
     std::string csv_preview;
 
@@ -268,6 +271,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         std::string fname, raw;
         modals_consume_csv(fname, raw);
         g_state.csv_filename = fname;
+        g_state.csv_path     = std::move(g_csv_path);
         g_state.csv_raw      = raw;
         g_state.csv_ready    = true;
         // Build preview
@@ -536,7 +540,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     if (ImGui::Button("Confirm", ImVec2(120, 0))) {
         g_state.modal_error.clear();
         if (g_state.source_type_idx == 0) {
-            ss.add_csv(g_state.name, g_state.csv_filename, g_state.csv_raw);
+            ss.add_csv(g_state.name, g_state.csv_filename, g_state.csv_raw, g_state.csv_path);
         } else {
             HttpSource src;
             src.url_template = g_state.url_buf;

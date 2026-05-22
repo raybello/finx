@@ -29,7 +29,8 @@ struct HttpSource {
 };
 
 struct CsvSource {
-    std::string filename;
+    std::string filename;           // basename for display
+    std::string path;               // full filesystem path (empty on web/embedded)
     std::string raw_text;           // full file contents
 };
 

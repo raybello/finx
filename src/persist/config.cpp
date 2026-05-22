@@ -72,8 +72,8 @@ static json serialise_app(const App& app) {
             h["field_map"] = fmap;
             s["http"]      = h;
         } else {
-            // CSV: just remember the filename
             s["csv_filename"] = ds.csv_source.filename;
+            s["csv_path"]     = ds.csv_source.path;
         }
 
         j_streams.push_back(s);
@@ -155,11 +155,34 @@ static void deserialise_app(App& app, const json& j) {
                 new_id = app.stream_store.add_http(name, src);
             } else {
                 std::string fname = s.value("csv_filename", "");
-                const char* embedded = get_embedded_csv(fname.c_str());
-                if (embedded) {
-                    new_id = app.stream_store.add_csv(name, fname, embedded);
-                } else {
-                    new_id = app.stream_store.add_csv_placeholder(name, fname);
+                std::string fpath = s.value("csv_path", "");
+                bool loaded = false;
+
+#ifndef __EMSCRIPTEN__
+                if (!fpath.empty()) {
+                    std::ifstream f(fpath);
+                    if (f.is_open()) {
+                        std::ostringstream oss;
+                        oss << f.rdbuf();
+                        std::string raw = oss.str();
+                        if (!raw.empty()) {
+                            new_id = app.stream_store.add_csv(name, fname, raw, fpath);
+                            loaded = true;
+                        }
+                    }
+                }
+#endif
+
+                if (!loaded) {
+                    const char* embedded = get_embedded_csv(fname.c_str());
+                    if (embedded) {
+                        new_id = app.stream_store.add_csv(name, fname, embedded);
+                        loaded = true;
+                    }
+                }
+
+                if (!loaded) {
+                    new_id = app.stream_store.add_csv_placeholder(name, fname, fpath);
                 }
             }
 

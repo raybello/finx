@@ -8,8 +8,8 @@ struct ParsedTable;
 
 class StreamStore {
 public:
-    uint32_t add_csv(const std::string& name, const std::string& filename, const std::string& raw_text);
-    uint32_t add_csv_placeholder(const std::string& name, const std::string& filename);
+    uint32_t add_csv(const std::string& name, const std::string& filename, const std::string& raw_text, const std::string& path = "");
+    uint32_t add_csv_placeholder(const std::string& name, const std::string& filename, const std::string& path = "");
     uint32_t add_http(const std::string& name, const HttpSource& src);
     void     refresh(uint32_t id);
     void     remove(uint32_t id);
