@@ -4,6 +4,7 @@
 #include "data/plot_store.h"
 #include "data/sample_data.h"
 #include "data/types.h"
+#include "ui/modals.h"
 #include "json.hpp"
 #include <string>
 #include <fstream>
@@ -130,6 +131,32 @@ static json serialise_app(const App& app) {
     }
     j["plots"] = j_plots;
 
+    // HTTP draft — last-used URL/params so the modal pre-fills on next open
+    HttpSource draft = modals_get_http_draft();
+    if (!draft.url_template.empty()) {
+        json jd;
+        jd["url_template"] = draft.url_template;
+        jd["json_path"]    = draft.json_path;
+        json dparams = json::array();
+        for (const auto& kv : draft.params)
+            dparams.push_back({ {"key", kv.first}, {"val", kv.second} });
+        jd["params"] = dparams;
+        json dfmap = json::array();
+        for (const auto& fm : draft.field_map) {
+            json f;
+            f["output_name"] = fm.output_name;
+            f["json_key"]    = fm.json_key;
+            switch (fm.type) {
+                case FieldType::TIMESTAMP: f["type"] = "ts";  break;
+                case FieldType::STRING:    f["type"] = "str"; break;
+                default:                   f["type"] = "num"; break;
+            }
+            dfmap.push_back(f);
+        }
+        jd["field_map"] = dfmap;
+        j["http_draft"] = jd;
+    }
+
     return j;
 }
 
@@ -243,6 +270,31 @@ static void deserialise_app(App& app, const json& j) {
             uint32_t new_id = app.stream_store.add_formula(name, src);
             id_remap[saved_id] = new_id;
         }
+    }
+
+    // HTTP draft
+    if (j.contains("http_draft")) {
+        const auto& jd = j["http_draft"];
+        HttpSource draft;
+        draft.url_template = jd.value("url_template", "");
+        draft.json_path    = jd.value("json_path", "");
+        if (jd.contains("params") && jd["params"].is_array()) {
+            for (const auto& p : jd["params"])
+                draft.params.emplace_back(p.value("key",""), p.value("val",""));
+        }
+        if (jd.contains("field_map") && jd["field_map"].is_array()) {
+            for (const auto& fm : jd["field_map"]) {
+                FieldMapEntry e;
+                e.output_name = fm.value("output_name","");
+                e.json_key    = fm.value("json_key","");
+                std::string type = fm.value("type","num");
+                if      (type == "ts")  e.type = FieldType::TIMESTAMP;
+                else if (type == "str") e.type = FieldType::STRING;
+                else                    e.type = FieldType::NUMBER;
+                draft.field_map.push_back(e);
+            }
+        }
+        modals_set_http_draft(draft);
     }
 
     // Plots

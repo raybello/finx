@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "data/types.h"
 
 class StreamStore;
 class PlotStore;
@@ -21,6 +22,10 @@ bool modals_png_path_ready();
 
 // Consume the confirmed PNG save path
 std::string modals_consume_png_path();
+
+// HTTP draft: last-used values auto-saved to finx.json so they persist across sessions
+HttpSource modals_get_http_draft();
+void       modals_set_http_draft(const HttpSource& src);
 
 // Render all modals — call each frame
 void modals_render(StreamStore& ss, PlotStore& ps);
