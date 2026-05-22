@@ -64,8 +64,17 @@ static ParsedTable do_fetch(const YFinanceSource& src) {
         }
 
         // ── Timestamps ────────────────────────────────────────────────────────
-        // hist.index is a tz-aware DatetimeIndex (datetime64[s, tz]).
-        // astype('int64') yields UTC epoch seconds for [s] resolution.
+        // hist.index is a tz-aware DatetimeIndex.
+        // Pandas 2.x uses datetime64[s, UTC]  → astype('int64') = epoch seconds.
+        // Pandas 1.x uses datetime64[ns, UTC] → astype('int64') = epoch nanoseconds.
+        // Detect the resolution from the dtype string and scale accordingly.
+        auto index_dtype = hist.attr("index").attr("dtype")
+                               .attr("__str__")().cast<std::string>();
+        double ts_scale = 1.0; // default: seconds
+        if (index_dtype.find("[ns") != std::string::npos) ts_scale = 1e-9;
+        else if (index_dtype.find("[us") != std::string::npos) ts_scale = 1e-6;
+        else if (index_dtype.find("[ms") != std::string::npos) ts_scale = 1e-3;
+
         auto ts_list = hist.attr("index")
                            .attr("astype")("int64")
                            .attr("tolist")()
@@ -74,7 +83,7 @@ static ParsedTable do_fetch(const YFinanceSource& src) {
         std::vector<double> timestamps;
         timestamps.reserve(ts_list.size());
         for (int64_t t : ts_list)
-            timestamps.push_back(static_cast<double>(t));
+            timestamps.push_back(static_cast<double>(t) * ts_scale);
 
         result.schema.push_back({"Date", FieldType::TIMESTAMP});
         result.columns["Date"] = std::move(timestamps);
