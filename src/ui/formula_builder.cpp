@@ -214,6 +214,15 @@ void formula_builder_render(App& app) {
     op_btn("exp(", "exp(");
     ImGui::NewLine();
 
+    ImGui::TextDisabled("Window Functions  (alias, period)");
+    op_btn("sma(", "sma(");
+    op_btn("ema(", "ema(");
+    op_btn("stddev(", "stddev(");
+    op_btn("rmin(", "rmin(");
+    op_btn("rmax(", "rmax(");
+    op_btn("roc(", "roc(");
+    ImGui::NewLine();
+
     // Backspace and clear
     if (ImGui::Button("Backspace")) {
         size_t len = std::strlen(g_fb.expr_buf);

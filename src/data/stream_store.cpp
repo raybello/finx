@@ -5,7 +5,121 @@
 #include "expr/expr_parser.h"
 #include "expr/expr_evaluator.h"
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <map>
+#include <string>
+
+// ── Window function helpers ───────────────────────────────────────────────────
+
+static const double kWinNaN = std::numeric_limits<double>::quiet_NaN();
+
+static bool is_window_fn(const std::string& n) {
+    return n == "sma" || n == "ema"   || n == "stddev" ||
+           n == "rmin" || n == "rmax" || n == "roc";
+}
+
+static std::vector<double> compute_sma(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 0) return out;
+    for (size_t i = (size_t)(p - 1); i < col.size(); ++i) {
+        double s = 0.0;
+        for (int k = 0; k < p; ++k) s += col[i - k];
+        out[i] = s / p;
+    }
+    return out;
+}
+
+static std::vector<double> compute_ema(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 0 || (int)col.size() < p) return out;
+    double k = 2.0 / (p + 1.0);
+    double seed = 0.0;
+    for (int i = 0; i < p; ++i) seed += col[i];
+    out[p - 1] = seed / p;
+    for (size_t i = (size_t)p; i < col.size(); ++i)
+        out[i] = col[i] * k + out[i - 1] * (1.0 - k);
+    return out;
+}
+
+static std::vector<double> compute_stddev(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 1) return out;
+    for (size_t i = (size_t)(p - 1); i < col.size(); ++i) {
+        double s = 0.0;
+        for (int k = 0; k < p; ++k) s += col[i - k];
+        double mean = s / p;
+        double sq = 0.0;
+        for (int k = 0; k < p; ++k) { double d = col[i - k] - mean; sq += d * d; }
+        out[i] = std::sqrt(sq / p);
+    }
+    return out;
+}
+
+static std::vector<double> compute_rmin(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 0) return out;
+    for (size_t i = (size_t)(p - 1); i < col.size(); ++i) {
+        double m = col[i];
+        for (int k = 1; k < p; ++k) m = std::min(m, col[i - k]);
+        out[i] = m;
+    }
+    return out;
+}
+
+static std::vector<double> compute_rmax(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 0) return out;
+    for (size_t i = (size_t)(p - 1); i < col.size(); ++i) {
+        double m = col[i];
+        for (int k = 1; k < p; ++k) m = std::max(m, col[i - k]);
+        out[i] = m;
+    }
+    return out;
+}
+
+static std::vector<double> compute_roc(const std::vector<double>& col, int p) {
+    std::vector<double> out(col.size(), kWinNaN);
+    if (p <= 0) return out;
+    for (size_t i = (size_t)p; i < col.size(); ++i) {
+        double prev = col[i - p];
+        out[i] = (prev == 0.0) ? kWinNaN : (col[i] - prev) / prev * 100.0;
+    }
+    return out;
+}
+
+struct WinCallInfo { std::string fn, alias, key; int period = 0; };
+
+static bool collect_window_calls(const ExprNode& node,
+                                  std::vector<WinCallInfo>& out,
+                                  std::string& error) {
+    if (node.type == ExprNodeType::CALL && is_window_fn(node.name)) {
+        if (node.children.size() != 2 ||
+            node.children[0].type != ExprNodeType::VARIABLE ||
+            node.children[1].type != ExprNodeType::LITERAL) {
+            error = "Window function '" + node.name +
+                    "': first arg must be a field alias, second must be a literal period "
+                    "(e.g., sma(close, 20))";
+            return false;
+        }
+        int p = (int)node.children[1].literal;
+        if (p <= 0) {
+            error = "Window function '" + node.name + "': period must be > 0";
+            return false;
+        }
+        WinCallInfo w;
+        w.fn     = node.name;
+        w.alias  = node.children[0].name;
+        w.period = p;
+        w.key    = w.fn + ":" + w.alias + ":" + std::to_string(p);
+        bool dup = false;
+        for (const auto& e : out) { if (e.key == w.key) { dup = true; break; } }
+        if (!dup) out.push_back(w);
+    }
+    for (const auto& c : node.children)
+        if (!collect_window_calls(c, out, error)) return false;
+    return true;
+}
 
 uint32_t StreamStore::add_csv(const std::string& name,
                                const std::string& filename,
@@ -203,6 +317,49 @@ bool StreamStore::evaluate_formula(uint32_t id) {
     }
     const std::vector<double>& x_col = x_col_it->second;
 
+    // Pre-compute window functions found in the expression
+    WinCols win_cols;
+    {
+        std::vector<WinCallInfo> win_calls;
+        std::string wc_err;
+        if (!collect_window_calls(pr.root, win_calls, wc_err)) {
+            ds->status    = StreamStatus::ERROR_STATE;
+            ds->error_msg = wc_err;
+            return false;
+        }
+        for (const auto& wc : win_calls) {
+            const FormulaBinding* binding = nullptr;
+            for (const auto& b : src.bindings)
+                if (b.alias == wc.alias) { binding = &b; break; }
+            if (!binding) {
+                ds->status    = StreamStatus::ERROR_STATE;
+                ds->error_msg = "Window function '" + wc.fn + "': alias '" +
+                                wc.alias + "' not bound";
+                return false;
+            }
+            DataStream* bds = find(binding->stream_id);
+            if (!bds) {
+                ds->status    = StreamStatus::ERROR_STATE;
+                ds->error_msg = "Window function '" + wc.fn + "': source stream not found";
+                return false;
+            }
+            auto col_it = bds->columns.find(binding->field_name);
+            if (col_it == bds->columns.end()) {
+                ds->status    = StreamStatus::ERROR_STATE;
+                ds->error_msg = "Window function '" + wc.fn + "': field '" +
+                                binding->field_name + "' not found";
+                return false;
+            }
+            const auto& col = col_it->second;
+            if      (wc.fn == "sma")    win_cols[wc.key] = compute_sma(col, wc.period);
+            else if (wc.fn == "ema")    win_cols[wc.key] = compute_ema(col, wc.period);
+            else if (wc.fn == "stddev") win_cols[wc.key] = compute_stddev(col, wc.period);
+            else if (wc.fn == "rmin")   win_cols[wc.key] = compute_rmin(col, wc.period);
+            else if (wc.fn == "rmax")   win_cols[wc.key] = compute_rmax(col, wc.period);
+            else if (wc.fn == "roc")    win_cols[wc.key] = compute_roc(col, wc.period);
+        }
+    }
+
     // Build x-value -> row-index maps for streams that differ from x_stream
     std::map<uint32_t, std::unordered_map<double, size_t>> x_index_maps;
     for (const auto& b : src.bindings) {
@@ -270,7 +427,10 @@ bool StreamStore::evaluate_formula(uint32_t id) {
 
         if (all_found) {
             x_out.push_back(x_val);
-            result_out.push_back(eval_node(pr.root, vars));
+            double res = win_cols.empty()
+                ? eval_node(pr.root, vars)
+                : eval_node(pr.root, vars, i, win_cols);
+            result_out.push_back(res);
         }
     }
 

@@ -5,6 +5,7 @@
 #include "ui/plot_inspector.h"
 #include "ui/modals.h"
 #include "ui/formula_builder.h"
+#include "ui/data_table.h"
 #include "io/http_client.h"
 #include "io/yfinance_client.h"
 #include "persist/config.h"
@@ -136,6 +137,9 @@ void App::render() {
     modals_render(*this);
     formula_builder_render(*this);
     render_help_modal();
+
+    // Data table windows
+    render_data_tables(*this);
     if (modals_png_path_ready()) {
         pending_png_path = modals_consume_png_path();
     }
