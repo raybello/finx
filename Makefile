@@ -101,7 +101,7 @@ WEB_LDFLAGS := \
 WEB_OBJS := $(patsubst %.cpp,$(WEB_OBJ_DIR)/%.o,$(ALL_SRCS))
 
 # ---------- top-level rules ----------
-.PHONY: all native web run rerun serve clean clean-native clean-web deps help test
+.PHONY: all native web run rerun serve clean clean-native clean-web deps help test test-yfinance
 
 all: native
 
@@ -166,7 +166,10 @@ help:
 # ---------- test target ----------
 TEST_DIR      := tests
 TEST_BIN      := build/tests/finx_tests
-TEST_SRCS     := $(wildcard $(TEST_DIR)/*.cpp)
+
+# Exclude the pybind11 integration test from the main suite; it lives in its own binary.
+YF_INTEG_TEST := $(TEST_DIR)/yfinance_integration_test.cpp
+TEST_SRCS     := $(filter-out $(YF_INTEG_TEST),$(wildcard $(TEST_DIR)/*.cpp))
 
 # Source files compiled into the test binary (no main.cpp, no UI, no persist)
 TEST_APP_SRCS := \
@@ -201,3 +204,32 @@ $(TEST_BIN): $(TEST_SRCS) $(TEST_APP_SRCS)
 
 test: $(TEST_BIN)
 	./$(TEST_BIN) --gtest_color=yes
+
+# ---------- yfinance integration test (requires pybind11 + yfinance) ----------
+YF_TEST_BIN   := build/tests/yfinance_integration_tests
+YF_TEST_SRCS  := $(YF_INTEG_TEST) src/io/yfinance_client.cpp
+
+ifneq ($(PYBIND11_INC),)
+
+YF_TEST_CXXFLAGS := $(TEST_CXXFLAGS) -DHAVE_PYBIND11 -I$(PYBIND11_INC) $(PYTHON_INC)
+# Uses a custom main() that registers the global environment, so link against
+# gtest only (not gtest_main which provides its own main).
+YF_GTEST_LIBS    := $(filter-out -lgtest_main,$(GTEST_LIBS)) -lgtest
+YF_TEST_LDFLAGS  := -lpthread $(YF_GTEST_LIBS) $(PYTHON_LDFLAGS)
+ifeq ($(UNAME_S),Darwin)
+    YF_TEST_LDFLAGS += -framework CoreFoundation
+endif
+
+$(YF_TEST_BIN): $(YF_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(NATIVE_CXX) $(YF_TEST_CXXFLAGS) -o $@ $^ $(YF_TEST_LDFLAGS)
+
+test-yfinance: $(YF_TEST_BIN)
+	./$(YF_TEST_BIN) --gtest_color=yes
+
+else
+
+test-yfinance:
+	@echo "Skipping yfinance integration tests: pybind11 not found (install pybind11 Python package)"
+
+endif
