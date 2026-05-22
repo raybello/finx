@@ -9,6 +9,9 @@
 #include "imgui_impl_opengl3.h"
 #include "implot.h"
 #include "app.h"
+#include "io/png_export.h"
+#include <vector>
+#include <string>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -19,6 +22,11 @@ static App           g_app;
 static SDL_Window*   g_window     = nullptr;
 static SDL_GLContext g_gl_context;
 static bool          g_running    = true;
+
+// PNG export: path queued after modal confirm; captured one frame later so the
+// modal is fully closed before the screenshot is taken.
+static std::string g_png_queued_path;
+static bool        g_png_capture_next = false;
 
 static void main_loop() {
     SDL_Event e;
@@ -46,6 +54,22 @@ static void main_loop() {
     glClearColor(0.10f, 0.10f, 0.10f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    // PNG capture: after render so no modal chrome appears in the screenshot.
+    if (g_png_capture_next && !g_png_queued_path.empty()) {
+        g_png_capture_next = false;
+        int w = 0, h = 0;
+        SDL_GetWindowSize(g_window, &w, &h);
+        std::vector<unsigned char> pixels(static_cast<size_t>(w * h * 4));
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        png_export_pixels(g_png_queued_path, w, h, pixels.data());
+        g_png_queued_path.clear();
+    }
+    if (!g_app.pending_png_path.empty()) {
+        g_png_queued_path      = std::move(g_app.pending_png_path);
+        g_app.pending_png_path.clear();
+        g_png_capture_next     = true;
+    }
 
     // Multi-viewport support (native only)
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
