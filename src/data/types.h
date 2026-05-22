@@ -68,9 +68,10 @@ struct DataStream {
     std::unordered_map<std::string, std::vector<double>>      columns;
     std::unordered_map<std::string, std::vector<std::string>> str_columns;
     FormulaSource formula_source;
-    StreamStatus status    = StreamStatus::IDLE;
+    StreamStatus status       = StreamStatus::IDLE;
     std::string  error_msg;
-    size_t       row_count = 0;
+    size_t       row_count    = 0;
+    bool         data_changed = false; // set by apply_parsed; consumed by App::render
 };
 
 struct PlotSeries {

@@ -316,10 +316,11 @@ void StreamStore::apply_parsed(uint32_t id, ParsedTable&& t) {
         return;
     }
 
-    ds->schema      = std::move(t.schema);
-    ds->columns     = std::move(t.columns);
-    ds->str_columns = std::move(t.str_columns);
-    ds->row_count   = t.row_count;
-    ds->status      = StreamStatus::OK;
+    ds->schema        = std::move(t.schema);
+    ds->columns       = std::move(t.columns);
+    ds->str_columns   = std::move(t.str_columns);
+    ds->row_count     = t.row_count;
+    ds->status        = StreamStatus::OK;
     ds->error_msg.clear();
+    ds->data_changed  = true;
 }

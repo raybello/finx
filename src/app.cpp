@@ -35,8 +35,25 @@ void App::shutdown() {
 }
 
 void App::render() {
-    // Drain HTTP result queue
+    // Drain HTTP / yfinance result queue
     stream_store.poll();
+
+    // When a stream gets new data (startup load, async fetch, or manual refresh),
+    // mark every plot that already has series configured for that stream so the
+    // axes auto-fit on the next rendered frame.
+    for (auto& ds : stream_store.all()) {
+        if (!ds.data_changed) continue;
+        ds.data_changed = false;
+        for (auto& plot : plot_store.all()) {
+            for (const auto& ser : plot.series) {
+                if (ser.stream_id == ds.id &&
+                    !ser.x_field.empty() && !ser.y_field.empty()) {
+                    plot.needs_fit = true;
+                    break;
+                }
+            }
+        }
+    }
 
     // Global keyboard shortcuts (Ctrl/Cmd on macOS via ImGuiMod_Ctrl)
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
