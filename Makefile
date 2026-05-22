@@ -80,6 +80,7 @@ WEB_LDFLAGS := \
     -s EXPORTED_RUNTIME_METHODS='["ccall","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
     -s EXPORTED_FUNCTIONS='["_main","_finx_csv_loaded"]' \
     $(WEB_EMS) \
+    --preload-file assets \
     --shell-file shell.html
 
 WEB_OBJS := $(patsubst %.cpp,$(WEB_OBJ_DIR)/%.o,$(ALL_SRCS))

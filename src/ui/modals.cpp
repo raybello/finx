@@ -53,14 +53,98 @@ EM_JS(void, js_open_file_picker, (), {
     inp.click();
 });
 
-#else // Native stubs
+#else // ── Native: async popen-based file dialog ─────────────────────────────
+
+#include <future>
+#include <fstream>
+#include <sstream>
+#include <chrono>
+#include <cstdio>
 
 static bool        g_csv_pending = false;
 static std::string g_csv_name;
 static std::string g_csv_data;
 
+static std::future<std::string> g_dialog_future;
+
+// Opens a native OS file-picker synchronously (called on a background thread).
+// Returns the selected file path, or "" if cancelled / no tool available.
+static std::string native_open_csv_dialog_sync() {
+#ifdef __APPLE__
+    FILE* fp = popen(
+        "osascript -e 'POSIX path of (choose file of type"
+        " {\"public.comma-separated-values-text\",\"public.plain-text\"}"
+        " with prompt \"Open CSV File\")' 2>/dev/null", "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) return s;
+        }
+    }
+#else
+    // Try zenity (GNOME / GTK)
+    FILE* fp = popen(
+        "zenity --file-selection"
+        " --title='Open CSV File'"
+        " --file-filter='CSV files (*.csv *.tsv *.txt) | *.csv *.tsv *.txt'"
+        " 2>/dev/null", "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) return s;
+        }
+    }
+    // Try kdialog (KDE)
+    fp = popen("kdialog --getopenfilename . '*.csv *.tsv *.txt' 2>/dev/null", "r");
+    if (fp) {
+        char buf[4096] = {};
+        bool got = (fgets(buf, sizeof(buf), fp) != nullptr);
+        pclose(fp);
+        if (got) {
+            std::string s(buf);
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+            if (!s.empty()) return s;
+        }
+    }
+#endif
+    return "";
+}
+
+// Polls the background dialog task; populates g_csv_* when the user picks a file.
+static void poll_native_dialog() {
+    if (!g_dialog_future.valid()) return;
+    if (g_dialog_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+
+    std::string path = g_dialog_future.get(); // releases the future
+    if (path.empty()) return;
+
+    // Extract the filename component
+    size_t slash = path.rfind('/');
+    std::string fname = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+
+    // Read file contents
+    std::ifstream f(path);
+    if (!f.is_open()) return;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+
+    g_csv_name    = std::move(fname);
+    g_csv_data    = ss.str();
+    g_csv_pending = true;
+}
+
 static void js_open_file_picker() {
-    // Native: not supported via browser picker. User can drag-drop or use --csv flag.
+    if (!g_dialog_future.valid()) {
+        g_dialog_future = std::async(std::launch::async, native_open_csv_dialog_sync);
+    }
 }
 
 #endif
@@ -175,7 +259,11 @@ static std::string build_preview(const ParsedTable& t, int max_rows = 5) {
 // ── Main render ────────────────────────────────────────────────────────────
 
 void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
-    // Check for pending CSV loaded from browser
+#ifndef __EMSCRIPTEN__
+    poll_native_dialog();
+#endif
+
+    // Check for pending CSV loaded from file picker (web) or native dialog
     if (g_csv_pending) {
         std::string fname, raw;
         modals_consume_csv(fname, raw);
@@ -255,12 +343,20 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
     // ── CSV section ─────────────────────────────────────────────────────────
     if (g_state.source_type_idx == 0) {
-        if (ImGui::Button("Browse File...")) {
-#ifdef __EMSCRIPTEN__
-            js_open_file_picker();
-#else
-            g_state.modal_error = "Native file dialog not available. Use --csv <path> flag.";
+        bool dialog_busy = false;
+#ifndef __EMSCRIPTEN__
+        dialog_busy = g_dialog_future.valid();
 #endif
+        if (dialog_busy) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Browse File...")) {
+            js_open_file_picker();
+        }
+        if (dialog_busy) {
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("Opening...");
         }
 
         if (g_state.csv_ready) {
