@@ -2,8 +2,7 @@
 #include <string>
 #include "data/types.h"
 
-class StreamStore;
-class PlotStore;
+class App;
 
 // Open the "Add Data Stream" modal on next frame
 void modals_request_add_stream();
@@ -34,4 +33,4 @@ HttpSource modals_get_http_draft();
 void       modals_set_http_draft(const HttpSource& src);
 
 // Render all modals — call each frame
-void modals_render(StreamStore& ss, PlotStore& ps);
+void modals_render(App& app);

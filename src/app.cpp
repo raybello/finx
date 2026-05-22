@@ -10,10 +10,19 @@
 #include "persist/config.h"
 #include "imgui.h"
 #include "imgui_internal.h"
+#include <string>
 
 // ── Dockspace layout constants ─────────────────────────────────────────────
 static constexpr float kStreamPanelWidth   = 220.0f;
 static constexpr float kInspectorWidth     = 280.0f;
+
+uint32_t App::new_plot() {
+    static int count = 0;
+    ++count;
+    uint32_t id = plot_store.add("Plot " + std::to_string(count));
+    focused_plot_id = id;
+    return id;
+}
 
 void App::init() {
     yfinance_init();
@@ -28,6 +37,16 @@ void App::shutdown() {
 void App::render() {
     // Drain HTTP result queue
     stream_store.poll();
+
+    // Global keyboard shortcuts (Ctrl/Cmd on macOS via ImGuiMod_Ctrl)
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
+        modals_request_add_stream();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P))
+        new_plot();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
+        config_save(*this);
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E))
+        modals_request_export_png();
 
     // Create full-viewport dockspace
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -86,8 +105,9 @@ void App::render() {
     render_plot_windows(*this);
 
     // Modals
-    modals_render(stream_store, plot_store);
+    modals_render(*this);
     formula_builder_render(*this);
+    render_help_modal();
     if (modals_png_path_ready()) {
         pending_png_path = modals_consume_png_path();
     }
