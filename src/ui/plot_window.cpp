@@ -17,7 +17,7 @@ void render_plot_windows(App& app) {
         if (!plot.open) continue;
 
         char win_title[128];
-        std::snprintf(win_title, sizeof(win_title), "%s##plot_%u",
+        std::snprintf(win_title, sizeof(win_title), "%s###plot_%u",
                       plot.name.c_str(), plot.id);
 
         ImGuiWindowFlags win_flags =
