@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <cmath>
 #include "data/stream_store.h"
 #include "io/yfinance_client.h"
 
