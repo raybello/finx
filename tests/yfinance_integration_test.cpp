@@ -139,7 +139,7 @@ TEST(YFinanceModule, YFinancePackageImportable) {
 
 // ── Real network (requires yfinance + internet) ───────────────────────────────
 
-TEST(YFinanceNetwork, FetchSPY_Schema) {
+TEST(YFinanceNetwork, FetchSNPS_Schema) {
     if (!yfinance_importable()) {
         GTEST_SKIP() << "yfinance not installed";
     }
@@ -148,7 +148,7 @@ TEST(YFinanceNetwork, FetchSPY_Schema) {
     bool ok_out = false;
     ParsedTable result;
 
-    YFinanceSource src{"SPY", "5d", "1d"};
+    YFinanceSource src{"SNPS", "5d", "1d"};
     yfinance_fetch_async(1, src, [&](bool ok, ParsedTable tbl) {
         ok_out = ok;
         result = std::move(tbl);
@@ -178,7 +178,7 @@ TEST(YFinanceNetwork, FetchSPY_Schema) {
     EXPECT_TRUE(found_ts);
 }
 
-TEST(YFinanceNetwork, FetchSPY_TimestampsAreEpochSeconds) {
+TEST(YFinanceNetwork, FetchSNPS_TimestampsAreEpochSeconds) {
     if (!yfinance_importable()) {
         GTEST_SKIP() << "yfinance not installed";
     }
@@ -187,7 +187,7 @@ TEST(YFinanceNetwork, FetchSPY_TimestampsAreEpochSeconds) {
     bool ok_out = false;
     ParsedTable result;
 
-    YFinanceSource src{"SPY", "5d", "1d"};
+    YFinanceSource src{"SNPS", "5d", "1d"};
     yfinance_fetch_async(1, src, [&](bool ok, ParsedTable tbl) {
         ok_out = ok;
         result = std::move(tbl);
@@ -209,7 +209,7 @@ TEST(YFinanceNetwork, FetchSPY_TimestampsAreEpochSeconds) {
     }
 }
 
-TEST(YFinanceNetwork, FetchSPY_ColumnLengthsConsistent) {
+TEST(YFinanceNetwork, FetchSNPS_ColumnLengthsConsistent) {
     if (!yfinance_importable()) {
         GTEST_SKIP() << "yfinance not installed";
     }
@@ -218,7 +218,7 @@ TEST(YFinanceNetwork, FetchSPY_ColumnLengthsConsistent) {
     bool ok_out = false;
     ParsedTable result;
 
-    YFinanceSource src{"SPY", "5d", "1d"};
+    YFinanceSource src{"SNPS", "5d", "1d"};
     yfinance_fetch_async(1, src, [&](bool ok, ParsedTable tbl) {
         ok_out = ok;
         result = std::move(tbl);
