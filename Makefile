@@ -101,7 +101,7 @@ WEB_LDFLAGS := \
 WEB_OBJS := $(patsubst %.cpp,$(WEB_OBJ_DIR)/%.o,$(ALL_SRCS))
 
 # ---------- top-level rules ----------
-.PHONY: all native web run rerun serve clean clean-native clean-web deps help
+.PHONY: all native web run rerun serve clean clean-native clean-web deps help test
 
 all: native
 
@@ -159,5 +159,45 @@ help:
 	@echo "  make run        native build + run"
 	@echo "  make web        emscripten build"
 	@echo "  make serve      emscripten build + http server"
+	@echo "  make test       build and run unit tests (requires gtest + libcurl)"
 	@echo "  make clean      clean both"
 	@echo "  make deps       download library dependencies"
+
+# ---------- test target ----------
+TEST_DIR      := tests
+TEST_BIN      := build/tests/finx_tests
+TEST_SRCS     := $(wildcard $(TEST_DIR)/*.cpp)
+
+# Source files compiled into the test binary (no main.cpp, no UI, no persist)
+TEST_APP_SRCS := \
+    src/io/csv_parser.cpp \
+    src/io/http_client.cpp \
+    src/io/yfinance_client.cpp \
+    src/expr/expr_lexer.cpp \
+    src/expr/expr_parser.cpp \
+    src/expr/expr_evaluator.cpp \
+    src/data/stream_store.cpp
+
+# Intentionally does NOT include -DHAVE_PYBIND11 so yfinance_client
+# compiles to its no-op stubs — tests verify stub behaviour explicitly.
+TEST_CXXFLAGS := -std=c++17 -O0 -g -Wall -Wno-unused-function $(INCLUDES)
+
+GTEST_CFLAGS  := $(shell pkg-config --cflags gtest 2>/dev/null)
+GTEST_LIBS    := $(shell pkg-config --libs   gtest_main 2>/dev/null)
+ifeq ($(GTEST_LIBS),)
+    GTEST_LIBS := -lgtest -lgtest_main -lpthread
+endif
+
+TEST_CXXFLAGS += $(GTEST_CFLAGS)
+TEST_LDFLAGS  := -lcurl -lpthread $(GTEST_LIBS)
+
+ifeq ($(UNAME_S),Darwin)
+    TEST_LDFLAGS += -framework CoreFoundation
+endif
+
+$(TEST_BIN): $(TEST_SRCS) $(TEST_APP_SRCS)
+	@mkdir -p $(dir $@)
+	$(NATIVE_CXX) $(TEST_CXXFLAGS) -o $@ $^ $(TEST_LDFLAGS)
+
+test: $(TEST_BIN)
+	./$(TEST_BIN) --gtest_color=yes
