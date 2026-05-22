@@ -5,7 +5,6 @@
 finx
 docs/finx.js
 docs/finx.wasm
-docs/index.html
 
 # Native build artifacts
 *.o

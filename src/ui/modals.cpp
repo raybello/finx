@@ -18,6 +18,7 @@
 
 static bool        g_csv_pending = false;
 static std::string g_csv_name;
+static std::string g_csv_path;
 static std::string g_csv_data;
 
 extern "C" EMSCRIPTEN_KEEPALIVE
