@@ -118,9 +118,6 @@ void render_plot_windows(App& app) {
                 : ser.label;
             const char* lbl = label.c_str();
 
-            ImPlot::SetNextLineStyle(ser.color);
-            ImPlot::SetNextFillStyle(ser.color, 0.25f);
-
             // Set axes for this series
             if (ser.y_axis == 1) {
                 ImPlot::SetAxes(ImAxis_X1, ImAxis_Y2);
@@ -129,28 +126,39 @@ void render_plot_windows(App& app) {
             }
 
             switch (ser.plot_type) {
-                case PlotType::LINE:
-                    ImPlot::PlotLine(lbl, xs.data(), ys.data(), count);
+                case PlotType::LINE: {
+                    ImPlotSpec spec;
+                    spec.LineColor = ser.color;
+                    ImPlot::PlotLine(lbl, xs.data(), ys.data(), count, spec);
                     break;
-
-                case PlotType::SCATTER:
-                    ImPlot::SetNextMarkerStyle(ImPlotMarker_Circle, 4.0f, ser.color, 1.0f, ser.color);
-                    ImPlot::PlotScatter(lbl, xs.data(), ys.data(), count);
+                }
+                case PlotType::SCATTER: {
+                    ImPlotSpec spec;
+                    spec.LineColor        = ser.color;
+                    spec.Marker           = ImPlotMarker_Circle;
+                    spec.MarkerSize       = 4.0f;
+                    spec.MarkerFillColor  = ser.color;
+                    ImPlot::PlotScatter(lbl, xs.data(), ys.data(), count, spec);
                     break;
-
+                }
                 case PlotType::BAR: {
                     double bar_width = 0.5;
                     if (count > 1) {
                         bar_width = 0.67 * (xs[1] - xs[0]);
                         if (std::isnan(bar_width) || bar_width <= 0) bar_width = 0.5;
                     }
-                    ImPlot::PlotBars(lbl, xs.data(), ys.data(), count, bar_width);
+                    ImPlotSpec spec;
+                    spec.LineColor = ser.color;
+                    spec.FillColor = ser.color;
+                    ImPlot::PlotBars(lbl, xs.data(), ys.data(), count, bar_width, spec);
                     break;
                 }
-
-                case PlotType::STEP:
-                    ImPlot::PlotStairs(lbl, xs.data(), ys.data(), count);
+                case PlotType::STEP: {
+                    ImPlotSpec spec;
+                    spec.LineColor = ser.color;
+                    ImPlot::PlotStairs(lbl, xs.data(), ys.data(), count, spec);
                     break;
+                }
             }
         }
 

@@ -36,7 +36,7 @@ void App::render() {
         ImGuiWindowFlags_NoCollapse        |
         ImGuiWindowFlags_NoResize          |
         ImGuiWindowFlags_NoMove            |
-        ImGuiWindowFlags_NoBringToDisplayFront |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoDocking         |
         ImGuiWindowFlags_NoScrollbar       |
         ImGuiWindowFlags_NoScrollWithMouse |

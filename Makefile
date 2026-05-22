@@ -24,8 +24,10 @@ APP_SRCS := $(shell find src -name '*.cpp')
 ALL_SRCS := $(IMGUI_SRCS) $(IMPLOT_SRCS) $(APP_SRCS)
 
 # ── Native ──────────────────────────────────────────────────────────────
-CXXFLAGS_NATIVE := -std=c++17 -O2 $(INCLUDES)
-LIBS_NATIVE     := -lSDL2 -lGL -ldl -lpthread -lcurl
+SDL2_CFLAGS     := $(shell pkg-config --cflags sdl2 2>/dev/null || echo -I/usr/include/SDL2 -D_REENTRANT)
+SDL2_LIBS       := $(shell pkg-config --libs   sdl2 2>/dev/null || echo -lSDL2)
+CXXFLAGS_NATIVE := -std=c++17 -O2 $(INCLUDES) $(SDL2_CFLAGS)
+LIBS_NATIVE     := $(SDL2_LIBS) -lGL -ldl -lpthread -lcurl
 
 .PHONY: native run web serve clean deps
 
