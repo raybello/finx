@@ -176,6 +176,31 @@ ParsedTable extract_json(const std::string& json_text,
     return result;
 }
 
+// ── Response dispatcher ────────────────────────────────────────────────────
+
+static bool body_looks_like_json(const std::string& body) {
+    for (char c : body) {
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        return c == '{' || c == '[';
+    }
+    return false;
+}
+
+ParsedTable extract_response(const std::string& body, const HttpSource& src) {
+    bool use_json;
+    switch (src.response_format) {
+        case ResponseFormat::JSON: use_json = true;  break;
+        case ResponseFormat::CSV:  use_json = false; break;
+        default: // AUTO
+            use_json = body_looks_like_json(body); break;
+    }
+    if (use_json) {
+        return extract_json(body, src.json_path, src.field_map);
+    } else {
+        return parse_csv(body);
+    }
+}
+
 // ── Platform-specific HTTP ─────────────────────────────────────────────────
 
 #ifdef __EMSCRIPTEN__

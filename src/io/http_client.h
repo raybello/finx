@@ -23,3 +23,7 @@ std::string build_url(const std::string& url_template,
 ParsedTable extract_json(const std::string& json_text,
                          const std::string& json_path,
                          const std::vector<FieldMapEntry>& field_map);
+
+// Parse an HTTP response body using the format specified in src.
+// AUTO sniffs the body: JSON-like first char ({/[) → extract_json, otherwise → parse_csv.
+ParsedTable extract_response(const std::string& body, const HttpSource& src);

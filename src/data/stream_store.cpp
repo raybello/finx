@@ -59,7 +59,7 @@ uint32_t StreamStore::add_http(const std::string& name, const HttpSource& src) {
             ds->error_msg = body;
             return;
         }
-        ParsedTable t = extract_json(body, src.json_path, src.field_map);
+        ParsedTable t = extract_response(body, src);
         apply_parsed(id, std::move(t));
     });
 
@@ -82,7 +82,7 @@ void StreamStore::refresh(uint32_t id) {
                 d->error_msg = body;
                 return;
             }
-            ParsedTable t = extract_json(body, src_copy.json_path, src_copy.field_map);
+            ParsedTable t = extract_response(body, src_copy);
             apply_parsed(id, std::move(t));
         });
     } else if (ds->source_type == SourceType::CSV_FILE) {

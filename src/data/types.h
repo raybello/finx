@@ -21,11 +21,14 @@ struct FieldMapEntry {
     FieldType   type = FieldType::NUMBER;
 };
 
+enum class ResponseFormat { AUTO, JSON, CSV };
+
 struct HttpSource {
     std::string url_template;
     std::vector<std::pair<std::string,std::string>> params;
     std::string json_path;          // dot-separated, e.g. "results"
     std::vector<FieldMapEntry> field_map;
+    ResponseFormat response_format = ResponseFormat::AUTO;
 };
 
 struct CsvSource {

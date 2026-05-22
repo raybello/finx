@@ -88,6 +88,11 @@ static json serialise_app(const App& app) {
                 fmap.push_back(f);
             }
             h["field_map"] = fmap;
+            switch (ds.http_source.response_format) {
+                case ResponseFormat::JSON: h["response_format"] = "json"; break;
+                case ResponseFormat::CSV:  h["response_format"] = "csv";  break;
+                default:                   h["response_format"] = "auto"; break;
+            }
             s["http"]      = h;
         } else if (ds.source_type == SourceType::CSV_FILE) {
             s["csv_filename"] = ds.csv_source.filename;
@@ -154,6 +159,11 @@ static json serialise_app(const App& app) {
             dfmap.push_back(f);
         }
         jd["field_map"] = dfmap;
+        switch (draft.response_format) {
+            case ResponseFormat::JSON: jd["response_format"] = "json"; break;
+            case ResponseFormat::CSV:  jd["response_format"] = "csv";  break;
+            default:                   jd["response_format"] = "auto"; break;
+        }
         j["http_draft"] = jd;
     }
 
@@ -197,6 +207,12 @@ static void deserialise_app(App& app, const json& j) {
                         else                    e.type = FieldType::NUMBER;
                         src.field_map.push_back(e);
                     }
+                }
+                {
+                    std::string rfmt = h.value("response_format", "auto");
+                    if      (rfmt == "json") src.response_format = ResponseFormat::JSON;
+                    else if (rfmt == "csv")  src.response_format = ResponseFormat::CSV;
+                    else                     src.response_format = ResponseFormat::AUTO;
                 }
                 new_id = app.stream_store.add_http(name, src);
             } else {
@@ -293,6 +309,12 @@ static void deserialise_app(App& app, const json& j) {
                 else                    e.type = FieldType::NUMBER;
                 draft.field_map.push_back(e);
             }
+        }
+        {
+            std::string rfmt = jd.value("response_format", "auto");
+            if      (rfmt == "json") draft.response_format = ResponseFormat::JSON;
+            else if (rfmt == "csv")  draft.response_format = ResponseFormat::CSV;
+            else                     draft.response_format = ResponseFormat::AUTO;
         }
         modals_set_http_draft(draft);
     }
