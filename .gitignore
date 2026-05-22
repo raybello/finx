@@ -15,3 +15,7 @@ docs/index.html
 .vscode/
 *.swp
 *~
+
+# Setting
+*.ini
+*.json

@@ -1,4 +1,5 @@
-MAKEFLAGS += -j8
+NPROC     := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
+MAKEFLAGS += -j$(NPROC)
 
 APP     := finx
 SRC_DIR := src

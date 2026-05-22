@@ -3,11 +3,13 @@
 #include "data/stream_store.h"
 #include "data/plot_store.h"
 #include "data/sample_data.h"
+#include "data/types.h"
 #include "json.hpp"
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <cstdio>
+#include <unordered_map>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -117,11 +119,16 @@ static json serialise_app(const App& app) {
 // ── Deserialise ─────────────────────────────────────────────────────────────
 
 static void deserialise_app(App& app, const json& j) {
+    // saved_id -> new_id remap built while deserialising streams
+    std::unordered_map<uint32_t, uint32_t> id_remap;
+
     // Streams
     if (j.contains("streams") && j["streams"].is_array()) {
         for (const auto& s : j["streams"]) {
+            uint32_t saved_id   = s.value("id", 0u);
             std::string name        = s.value("name", "");
             std::string source_type = s.value("source_type", "csv");
+            uint32_t new_id = 0;
 
             if (source_type == "http" && s.contains("http")) {
                 const auto& h = s["http"];
@@ -145,19 +152,18 @@ static void deserialise_app(App& app, const json& j) {
                         src.field_map.push_back(e);
                     }
                 }
-                app.stream_store.add_http(name, src);
+                new_id = app.stream_store.add_http(name, src);
             } else {
-                // CSV: mark as needing re-upload (no raw data stored)
                 std::string fname = s.value("csv_filename", "");
-                DataStream ds;
-                ds.name        = name;
-                ds.source_type = SourceType::CSV_FILE;
-                ds.csv_source.filename = fname;
-                ds.status      = StreamStatus::ERROR_STATE;
-                ds.error_msg   = "CSV data not available — please re-upload the file.";
-                // Add directly (bypass parse)
-                app.stream_store.all().push_back(std::move(ds));
+                const char* embedded = get_embedded_csv(fname.c_str());
+                if (embedded) {
+                    new_id = app.stream_store.add_csv(name, fname, embedded);
+                } else {
+                    new_id = app.stream_store.add_csv_placeholder(name, fname);
+                }
             }
+
+            id_remap[saved_id] = new_id;
         }
     }
 
@@ -177,7 +183,9 @@ static void deserialise_app(App& app, const json& j) {
             if (jp.contains("series") && jp["series"].is_array()) {
                 for (const auto& js : jp["series"]) {
                     PlotSeries ser;
-                    ser.stream_id  = js.value("stream_id", 0u);
+                    uint32_t saved_sid = js.value("stream_id", 0u);
+                    auto it = id_remap.find(saved_sid);
+                    ser.stream_id  = (it != id_remap.end()) ? it->second : saved_sid;
                     ser.x_field    = js.value("x_field", "");
                     ser.y_field    = js.value("y_field", "");
                     ser.y_axis     = js.value("y_axis", 0);

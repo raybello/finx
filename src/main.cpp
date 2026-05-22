@@ -127,7 +127,7 @@ int main(int /*argc*/, char** /*argv*/) {
 #endif
 
     // SF Pro font — falls back to ImGui built-in if the file is absent
-    if (!io.Fonts->AddFontFromFileTTF("assets/fonts/SF-Pro.ttf", 14.0f)) {
+    if (!io.Fonts->AddFontFromFileTTF("assets/fonts/SF-Pro.ttf", 16.0f)) {
         io.Fonts->AddFontDefault();
     }
 

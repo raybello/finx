@@ -3,6 +3,7 @@
 #include "data/types.h"
 #include "data/stream_store.h"
 #include "data/plot_store.h"
+#include <string>
 
 // Embedded copy of assets/sample.csv — 52 trading days of OHLCV data (Q1 2024).
 // Keeping this in the binary means the sample always loads on both native and web
@@ -61,6 +62,11 @@ static const char* kSampleCsv =
     "2024-03-13,190.00,193.20,188.80,192.10,9123400\n"
     "2024-03-14,191.50,194.80,190.20,193.80,8823400\n"
     "2024-03-15,193.50,196.20,192.10,195.30,9567800\n";
+
+const char* get_embedded_csv(const char* filename) {
+    if (filename && std::string(filename) == "sample.csv") return kSampleCsv;
+    return nullptr;
+}
 
 void load_sample_defaults(App& app) {
     uint32_t sid = app.stream_store.add_csv("FINX Sample", "sample.csv", kSampleCsv);
