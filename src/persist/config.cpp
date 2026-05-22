@@ -50,6 +50,7 @@ static json serialise_app(const App& app) {
         const char* src_type_str = "csv";
         if (ds.source_type == SourceType::HTTP_GET) src_type_str = "http";
         if (ds.source_type == SourceType::FORMULA)  src_type_str = "formula";
+        if (ds.source_type == SourceType::YFINANCE) src_type_str = "yfinance";
         s["source_type"] = src_type_str;
 
         if (ds.source_type == SourceType::FORMULA) {
@@ -94,6 +95,12 @@ static json serialise_app(const App& app) {
                 default:                   h["response_format"] = "auto"; break;
             }
             s["http"]      = h;
+        } else if (ds.source_type == SourceType::YFINANCE) {
+            json yf;
+            yf["ticker"]   = ds.yf_source.ticker;
+            yf["period"]   = ds.yf_source.period;
+            yf["interval"] = ds.yf_source.interval;
+            s["yfinance"]  = yf;
         } else if (ds.source_type == SourceType::CSV_FILE) {
             s["csv_filename"] = ds.csv_source.filename;
             s["csv_path"]     = ds.csv_source.path;
@@ -176,7 +183,7 @@ static void deserialise_app(App& app, const json& j) {
     // saved_id -> new_id remap built while deserialising streams
     std::unordered_map<uint32_t, uint32_t> id_remap;
 
-    // Pass 1: load CSV and HTTP streams, building id_remap
+    // Pass 1: load CSV, HTTP, and yfinance streams, building id_remap
     if (j.contains("streams") && j["streams"].is_array()) {
         for (const auto& s : j["streams"]) {
             std::string source_type = s.value("source_type", "csv");
@@ -186,7 +193,16 @@ static void deserialise_app(App& app, const json& j) {
             std::string name  = s.value("name", "");
             uint32_t new_id   = 0;
 
-            if (source_type == "http" && s.contains("http")) {
+            if (source_type == "yfinance" && s.contains("yfinance")) {
+#ifndef __EMSCRIPTEN__
+                const auto& yf = s["yfinance"];
+                YFinanceSource src;
+                src.ticker   = yf.value("ticker",   "AAPL");
+                src.period   = yf.value("period",   "1mo");
+                src.interval = yf.value("interval", "1d");
+                new_id = app.stream_store.add_yfinance(name, src);
+#endif
+            } else if (source_type == "http" && s.contains("http")) {
                 const auto& h = s["http"];
                 HttpSource src;
                 src.url_template = h.value("url_template", "");

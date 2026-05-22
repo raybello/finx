@@ -1,6 +1,7 @@
 #include "data/stream_store.h"
 #include "io/csv_parser.h"
 #include "io/http_client.h"
+#include "io/yfinance_client.h"
 #include "expr/expr_parser.h"
 #include "expr/expr_evaluator.h"
 #include <algorithm>
@@ -74,6 +75,31 @@ void StreamStore::update_http(uint32_t id, const std::string& name, const HttpSo
     refresh(id);
 }
 
+uint32_t StreamStore::add_yfinance(const std::string& name, const YFinanceSource& src) {
+    DataStream ds;
+    ds.id          = next_id_++;
+    ds.name        = name;
+    ds.source_type = SourceType::YFINANCE;
+    ds.yf_source   = src;
+    ds.status      = StreamStatus::LOADING;
+    streams_.push_back(std::move(ds));
+    uint32_t id = streams_.back().id;
+
+    yfinance_fetch_async(id, src, [this, id](bool /*ok*/, ParsedTable table) {
+        apply_parsed(id, std::move(table));
+        reevaluate_dependents(id);
+    });
+    return id;
+}
+
+void StreamStore::update_yfinance(uint32_t id, const std::string& name, const YFinanceSource& src) {
+    DataStream* ds = find(id);
+    if (!ds || ds->source_type != SourceType::YFINANCE) return;
+    ds->name     = name;
+    ds->yf_source = src;
+    refresh(id);
+}
+
 void StreamStore::refresh(uint32_t id) {
     DataStream* ds = find(id);
     if (!ds) return;
@@ -92,6 +118,13 @@ void StreamStore::refresh(uint32_t id) {
             }
             ParsedTable t = extract_response(body, src_copy);
             apply_parsed(id, std::move(t));
+        });
+    } else if (ds->source_type == SourceType::YFINANCE) {
+        ds->status = StreamStatus::LOADING;
+        YFinanceSource src_copy = ds->yf_source;
+        yfinance_fetch_async(id, src_copy, [this, id](bool /*ok*/, ParsedTable table) {
+            apply_parsed(id, std::move(table));
+            reevaluate_dependents(id);
         });
     } else if (ds->source_type == SourceType::CSV_FILE) {
         if (!ds->csv_source.raw_text.empty()) {
@@ -121,6 +154,7 @@ DataStream* StreamStore::find(uint32_t id) {
 
 void StreamStore::poll() {
     http_poll_results();
+    yfinance_poll_results();
 }
 
 uint32_t StreamStore::add_formula(const std::string& name, const FormulaSource& src) {

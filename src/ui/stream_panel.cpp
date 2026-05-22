@@ -3,6 +3,7 @@
 #include "ui/formula_builder.h"
 #include "app.h"
 #include "data/stream_store.h"
+#include "io/yfinance_client.h"
 #include "imgui.h"
 #include <cstdio>
 #include <string>
@@ -39,6 +40,7 @@ void render_stream_panel(App& app) {
     uint32_t recalc_id       = 0;
     uint32_t edit_formula_id = 0;
     uint32_t edit_http_id    = 0;
+    uint32_t edit_yf_id      = 0;
 
     for (auto& ds : streams) {
         // Icon tag
@@ -46,6 +48,7 @@ void render_stream_panel(App& app) {
         switch (ds.source_type) {
             case SourceType::CSV_FILE: type_tag = "[CSV]";  break;
             case SourceType::HTTP_GET: type_tag = "[HTTP]"; break;
+            case SourceType::YFINANCE: type_tag = "[YF]";   break;
             default:                   type_tag = "[EXPR]"; break;
         }
 
@@ -107,6 +110,11 @@ void render_stream_panel(App& app) {
                                         b.alias.c_str(), b.field_name.c_str());
                 }
             }
+            if (ds.source_type == SourceType::YFINANCE) {
+                ImGui::TextDisabled("  ticker:   %s", ds.yf_source.ticker.c_str());
+                ImGui::TextDisabled("  period:   %s", ds.yf_source.period.c_str());
+                ImGui::TextDisabled("  interval: %s", ds.yf_source.interval.c_str());
+            }
             ImGui::TreePop();
         }
 
@@ -120,8 +128,12 @@ void render_stream_panel(App& app) {
         }
         if (ImGui::BeginPopup(ctx_id)) {
             if (ds.source_type == SourceType::HTTP_GET) {
-                if (ImGui::MenuItem("Refresh"))         refresh_id   = ds.id;
+                if (ImGui::MenuItem("Refresh"))          refresh_id   = ds.id;
                 if (ImGui::MenuItem("Edit Settings...")) edit_http_id = ds.id;
+            }
+            if (ds.source_type == SourceType::YFINANCE) {
+                if (ImGui::MenuItem("Refresh"))          refresh_id = ds.id;
+                if (ImGui::MenuItem("Edit Settings...")) edit_yf_id = ds.id;
             }
             if (ds.source_type == SourceType::FORMULA) {
                 if (ImGui::MenuItem("Edit Formula"))   edit_formula_id = ds.id;
@@ -151,6 +163,7 @@ void render_stream_panel(App& app) {
     if (recalc_id)       app.stream_store.evaluate_formula(recalc_id);
     if (edit_formula_id) formula_builder_request_open(edit_formula_id);
     if (edit_http_id)    modals_request_edit_http(edit_http_id);
+    if (edit_yf_id)      modals_request_edit_yfinance(edit_yf_id);
 
     ImGui::End();
 }

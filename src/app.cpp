@@ -6,6 +6,7 @@
 #include "ui/modals.h"
 #include "ui/formula_builder.h"
 #include "io/http_client.h"
+#include "io/yfinance_client.h"
 #include "persist/config.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -15,11 +16,13 @@ static constexpr float kStreamPanelWidth   = 220.0f;
 static constexpr float kInspectorWidth     = 280.0f;
 
 void App::init() {
+    yfinance_init();
     config_load(*this);
 }
 
 void App::shutdown() {
     config_save(*this);
+    yfinance_shutdown();
 }
 
 void App::render() {

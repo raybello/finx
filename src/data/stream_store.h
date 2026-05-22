@@ -12,6 +12,8 @@ public:
     uint32_t add_csv_placeholder(const std::string& name, const std::string& filename, const std::string& path = "");
     uint32_t add_http(const std::string& name, const HttpSource& src);
     void     update_http(uint32_t id, const std::string& name, const HttpSource& src);
+    uint32_t add_yfinance(const std::string& name, const YFinanceSource& src);
+    void     update_yfinance(uint32_t id, const std::string& name, const YFinanceSource& src);
     uint32_t add_formula(const std::string& name, const FormulaSource& src);
     bool     evaluate_formula(uint32_t id);
     void     reevaluate_dependents(uint32_t upstream_id);
