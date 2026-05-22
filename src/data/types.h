@@ -6,7 +6,7 @@
 #include "imgui.h"
 
 enum class FieldType    { NUMBER, TIMESTAMP, STRING };
-enum class SourceType   { CSV_FILE, HTTP_GET };
+enum class SourceType   { CSV_FILE, HTTP_GET, FORMULA };
 enum class StreamStatus { IDLE, LOADING, OK, ERROR_STATE };
 enum class PlotType     { LINE, SCATTER, BAR, STEP };
 
@@ -34,6 +34,20 @@ struct CsvSource {
     std::string raw_text;           // full file contents
 };
 
+struct FormulaBinding {
+    std::string alias;        // identifier used in expression, e.g. "births"
+    uint32_t    stream_id = 0;
+    std::string field_name;
+};
+
+struct FormulaSource {
+    std::string expression;       // e.g. "(births / total_pop) * 100"
+    std::string result_name;      // output column name
+    uint32_t    x_stream_id = 0;
+    std::string x_field;          // x-axis column in that stream
+    std::vector<FormulaBinding> bindings;
+};
+
 struct DataStream {
     uint32_t     id = 0;
     std::string  name;
@@ -43,6 +57,7 @@ struct DataStream {
     std::vector<FieldDef> schema;
     std::unordered_map<std::string, std::vector<double>>      columns;
     std::unordered_map<std::string, std::vector<std::string>> str_columns;
+    FormulaSource formula_source;
     StreamStatus status    = StreamStatus::IDLE;
     std::string  error_msg;
     size_t       row_count = 0;

@@ -4,6 +4,7 @@
 #include "ui/plot_window.h"
 #include "ui/plot_inspector.h"
 #include "ui/modals.h"
+#include "ui/formula_builder.h"
 #include "io/http_client.h"
 #include "persist/config.h"
 #include "imgui.h"
@@ -83,6 +84,7 @@ void App::render() {
 
     // Modals
     modals_render(stream_store, plot_store);
+    formula_builder_render(*this);
     if (modals_png_path_ready()) {
         pending_png_path = modals_consume_png_path();
     }

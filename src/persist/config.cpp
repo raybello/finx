@@ -46,9 +46,26 @@ static json serialise_app(const App& app) {
         json s;
         s["id"]          = ds.id;
         s["name"]        = ds.name;
-        s["source_type"] = (ds.source_type == SourceType::CSV_FILE) ? "csv" : "http";
+        const char* src_type_str = "csv";
+        if (ds.source_type == SourceType::HTTP_GET) src_type_str = "http";
+        if (ds.source_type == SourceType::FORMULA)  src_type_str = "formula";
+        s["source_type"] = src_type_str;
 
-        if (ds.source_type == SourceType::HTTP_GET) {
+        if (ds.source_type == SourceType::FORMULA) {
+            json f;
+            f["expression"]  = ds.formula_source.expression;
+            f["result_name"] = ds.formula_source.result_name;
+            f["x_stream_id"] = ds.formula_source.x_stream_id;
+            f["x_field"]     = ds.formula_source.x_field;
+            json jb = json::array();
+            for (const auto& b : ds.formula_source.bindings) {
+                jb.push_back({ {"alias", b.alias},
+                               {"stream_id", b.stream_id},
+                               {"field_name", b.field_name} });
+            }
+            f["bindings"] = jb;
+            s["formula"]  = f;
+        } else if (ds.source_type == SourceType::HTTP_GET) {
             json h;
             h["url_template"] = ds.http_source.url_template;
             h["json_path"]    = ds.http_source.json_path;
@@ -71,7 +88,7 @@ static json serialise_app(const App& app) {
             }
             h["field_map"] = fmap;
             s["http"]      = h;
-        } else {
+        } else if (ds.source_type == SourceType::CSV_FILE) {
             s["csv_filename"] = ds.csv_source.filename;
             s["csv_path"]     = ds.csv_source.path;
         }
@@ -122,13 +139,15 @@ static void deserialise_app(App& app, const json& j) {
     // saved_id -> new_id remap built while deserialising streams
     std::unordered_map<uint32_t, uint32_t> id_remap;
 
-    // Streams
+    // Pass 1: load CSV and HTTP streams, building id_remap
     if (j.contains("streams") && j["streams"].is_array()) {
         for (const auto& s : j["streams"]) {
-            uint32_t saved_id   = s.value("id", 0u);
-            std::string name        = s.value("name", "");
             std::string source_type = s.value("source_type", "csv");
-            uint32_t new_id = 0;
+            if (source_type == "formula") continue; // handled in pass 2
+
+            uint32_t saved_id = s.value("id", 0u);
+            std::string name  = s.value("name", "");
+            uint32_t new_id   = 0;
 
             if (source_type == "http" && s.contains("http")) {
                 const auto& h = s["http"];
@@ -186,6 +205,42 @@ static void deserialise_app(App& app, const json& j) {
                 }
             }
 
+            id_remap[saved_id] = new_id;
+        }
+    }
+
+    // Pass 2: load formula streams with remapped IDs
+    if (j.contains("streams") && j["streams"].is_array()) {
+        for (const auto& s : j["streams"]) {
+            std::string source_type = s.value("source_type", "csv");
+            if (source_type != "formula" || !s.contains("formula")) continue;
+
+            uint32_t saved_id = s.value("id", 0u);
+            std::string name  = s.value("name", "");
+
+            const auto& f = s["formula"];
+            FormulaSource src;
+            src.expression  = f.value("expression", "");
+            src.result_name = f.value("result_name", "result");
+            src.x_field     = f.value("x_field", "");
+
+            uint32_t saved_xid = f.value("x_stream_id", 0u);
+            auto xid_it = id_remap.find(saved_xid);
+            src.x_stream_id = (xid_it != id_remap.end()) ? xid_it->second : saved_xid;
+
+            if (f.contains("bindings") && f["bindings"].is_array()) {
+                for (const auto& b : f["bindings"]) {
+                    FormulaBinding fb;
+                    fb.alias      = b.value("alias", "");
+                    fb.field_name = b.value("field_name", "");
+                    uint32_t saved_bid = b.value("stream_id", 0u);
+                    auto bid_it = id_remap.find(saved_bid);
+                    fb.stream_id = (bid_it != id_remap.end()) ? bid_it->second : saved_bid;
+                    src.bindings.push_back(fb);
+                }
+            }
+
+            uint32_t new_id = app.stream_store.add_formula(name, src);
             id_remap[saved_id] = new_id;
         }
     }
