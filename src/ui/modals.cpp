@@ -4,6 +4,7 @@
 #include "data/plot_store.h"
 #include "io/csv_parser.h"
 #include "io/http_client.h"
+#include "io/yfinance_client.h"
 #include "imgui.h"
 #include <string>
 #include <vector>
@@ -297,9 +298,9 @@ struct FMapRow {
 };
 
 struct AddStreamState {
-    bool pending_open   = false;
-    char name[128]      = "Stream 1";
-    int  source_type_idx = 0;   // 0=CSV, 1=HTTP
+    bool pending_open    = false;
+    char name[128]       = "Stream 1";
+    int  source_type_idx = 0;   // 0=CSV, 1=HTTP, 2=Formula, 3=yfinance
 
     // CSV
     bool        csv_ready   = false;
@@ -317,23 +318,37 @@ struct AddStreamState {
     bool                  http_test_ok   = false;
     std::string           http_preview;
 
+    // yfinance
+    char yf_ticker[16]   = "AAPL";
+    int  yf_period_idx   = 2;    // default "1mo"
+    int  yf_interval_idx = 4;    // default "1d"
+
     std::string modal_error;
 };
 
 static AddStreamState g_state;
 static HttpSource     g_http_draft;
 static uint32_t       g_edit_http_id = 0; // nonzero while editing an existing HTTP stream
+static uint32_t       g_edit_yf_id   = 0; // nonzero while editing an existing yfinance stream
 
 HttpSource modals_get_http_draft()                    { return g_http_draft; }
 void       modals_set_http_draft(const HttpSource& s) { g_http_draft = s; }
 
 void modals_request_add_stream() {
     g_edit_http_id       = 0;
+    g_edit_yf_id         = 0;
     g_state.pending_open = true;
 }
 
 void modals_request_edit_http(uint32_t stream_id) {
     g_edit_http_id       = stream_id;
+    g_edit_yf_id         = 0;
+    g_state.pending_open = true;
+}
+
+void modals_request_edit_yfinance(uint32_t stream_id) {
+    g_edit_yf_id         = stream_id;
+    g_edit_http_id       = 0;
     g_state.pending_open = true;
 }
 
@@ -494,7 +509,30 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     // Open the popup if requested
     if (g_state.pending_open) {
         g_state.pending_open = false;
-        if (g_edit_http_id != 0) {
+        if (g_edit_yf_id != 0) {
+            // Edit yfinance stream: pre-fill from existing settings
+            DataStream* eds = ss.find(g_edit_yf_id);
+            if (eds && eds->source_type == SourceType::YFINANCE) {
+                std::strncpy(g_state.name, eds->name.c_str(), sizeof(g_state.name) - 1);
+                g_state.source_type_idx = 3;
+                std::strncpy(g_state.yf_ticker, eds->yf_source.ticker.c_str(), sizeof(g_state.yf_ticker) - 1);
+
+                static const char* kPeriods[] = {
+                    "1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"
+                };
+                g_state.yf_period_idx = 2; // default "1mo"
+                for (int i = 0; i < 11; ++i) {
+                    if (eds->yf_source.period == kPeriods[i]) { g_state.yf_period_idx = i; break; }
+                }
+                static const char* kIntervals[] = {
+                    "1m","2m","5m","15m","1d","5d","1wk","1mo","3mo"
+                };
+                g_state.yf_interval_idx = 4; // default "1d"
+                for (int i = 0; i < 9; ++i) {
+                    if (eds->yf_source.interval == kIntervals[i]) { g_state.yf_interval_idx = i; break; }
+                }
+            }
+        } else if (g_edit_http_id != 0) {
             // Edit mode: pre-fill from the existing stream's settings
             DataStream* eds = ss.find(g_edit_http_id);
             if (eds && eds->source_type == SourceType::HTTP_GET) {
@@ -566,6 +604,10 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         ImGui::TextColored(ImVec4(0.9f, 0.65f, 0.1f, 1.0f), "Editing HTTP Stream");
         ImGui::Spacing();
     }
+    if (g_edit_yf_id != 0) {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Editing yfinance Stream");
+        ImGui::Spacing();
+    }
 
     // ── Name ────────────────────────────────────────────────────────────────
     ImGui::Text("Stream Name");
@@ -576,7 +618,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     ImGui::Spacing();
 
     // ── Source type tabs (hidden in edit mode — type is fixed) ──────────────
-    if (g_edit_http_id == 0) {
+    if (g_edit_http_id == 0 && g_edit_yf_id == 0) {
         if (ImGui::RadioButton("CSV File", g_state.source_type_idx == 0)) {
             g_state.source_type_idx = 0;
         }
@@ -588,6 +630,12 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         if (ImGui::RadioButton("Formula", g_state.source_type_idx == 2)) {
             g_state.source_type_idx = 2;
         }
+#ifndef __EMSCRIPTEN__
+        ImGui::SameLine();
+        if (ImGui::RadioButton("yfinance", g_state.source_type_idx == 3)) {
+            g_state.source_type_idx = 3;
+        }
+#endif
     }
 
     ImGui::Separator();
@@ -644,6 +692,51 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
             "(births / total_pop) * 100). Click 'Open Formula Builder' below.");
         ImGui::EndChild();
     }
+
+    // ── yfinance section ─────────────────────────────────────────────────────
+#ifndef __EMSCRIPTEN__
+    if (g_state.source_type_idx == 3) {
+        static const char* kPeriods[]   = { "1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max" };
+        static const char* kIntervals[] = { "1m","2m","5m","15m","1d","5d","1wk","1mo","3mo" };
+        static const int   kPeriodCount   = 11;
+        static const int   kIntervalCount =  9;
+
+        ImGui::BeginChild("##yf_form", ImVec2(-1, available_h), false);
+
+        ImGui::Text("Ticker Symbol");
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::InputText("##yf_ticker", g_state.yf_ticker, sizeof(g_state.yf_ticker));
+        ImGui::SameLine();
+        ImGui::TextDisabled("e.g. AAPL, MSFT, BTC-USD");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Period");
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::Combo("##yf_period", &g_state.yf_period_idx, kPeriods, kPeriodCount);
+        ImGui::SameLine();
+        ImGui::TextDisabled("History length");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Interval");
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::Combo("##yf_interval", &g_state.yf_interval_idx, kIntervals, kIntervalCount);
+        ImGui::SameLine();
+        ImGui::TextDisabled("Bar size");
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Data: Open High Low Close Volume (via yfinance / Yahoo Finance)");
+        ImGui::Spacing();
+
+        if (!yfinance_available()) {
+            ImGui::TextColored(ImVec4(1.0f,0.6f,0.1f,1.0f),
+                "yfinance not available — build with HAVE_PYBIND11 and install yfinance.");
+        }
+
+        ImGui::EndChild();
+    }
+#endif
 
     // ── HTTP section ────────────────────────────────────────────────────────
     if (g_state.source_type_idx == 1) {
@@ -806,20 +899,25 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    bool is_formula = (g_state.source_type_idx == 2);
+    bool is_formula  = (g_state.source_type_idx == 2);
+    bool is_yfinance = (g_state.source_type_idx == 3);
     bool can_confirm = false;
     if (g_state.source_type_idx == 0) {
         can_confirm = g_state.csv_ready;
     } else if (g_state.source_type_idx == 1) {
         can_confirm = (g_state.url_buf[0] != '\0');
+    } else if (is_yfinance) {
+        can_confirm = (g_state.yf_ticker[0] != '\0') && yfinance_available();
     } else {
         can_confirm = true; // Formula: always allow (opens a new modal)
     }
 
     if (!can_confirm) ImGui::BeginDisabled();
 
-    const char* confirm_label = (g_edit_http_id != 0) ? "Save Changes"
-                              : (is_formula ? "Open Formula Builder" : "Confirm");
+    const char* confirm_label =
+        (g_edit_http_id != 0 || g_edit_yf_id != 0) ? "Save Changes"
+        : (is_formula ? "Open Formula Builder" : "Confirm");
+
     if (ImGui::Button(confirm_label, ImVec2(160, 0))) {
         g_state.modal_error.clear();
         if (g_state.source_type_idx == 0) {
@@ -858,6 +956,23 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
             }
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();
+        } else if (is_yfinance) {
+#ifndef __EMSCRIPTEN__
+            static const char* kPeriods[]   = { "1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max" };
+            static const char* kIntervals[] = { "1m","2m","5m","15m","1d","5d","1wk","1mo","3mo" };
+            YFinanceSource src;
+            src.ticker   = g_state.yf_ticker;
+            src.period   = kPeriods[g_state.yf_period_idx];
+            src.interval = kIntervals[g_state.yf_interval_idx];
+            if (g_edit_yf_id != 0) {
+                ss.update_yfinance(g_edit_yf_id, g_state.name, src);
+                g_edit_yf_id = 0;
+            } else {
+                ss.add_yfinance(g_state.name, src);
+            }
+            g_state = AddStreamState{};
+            ImGui::CloseCurrentPopup();
+#endif
         } else {
             // Formula: close this modal and open the formula builder
             formula_builder_request_open(0);
@@ -872,6 +987,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
     if (ImGui::Button("Cancel", ImVec2(120, 0))) {
         g_edit_http_id = 0;
+        g_edit_yf_id   = 0;
         g_state = AddStreamState{};
         ImGui::CloseCurrentPopup();
     }

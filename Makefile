@@ -42,12 +42,26 @@ NATIVE_LIBS     :=
 ifeq ($(UNAME_S),Linux)
     NATIVE_LIBS     += -lGL -ldl -lpthread -lcurl `sdl2-config --libs`
     NATIVE_CXXFLAGS += `sdl2-config --cflags`
+    PYBIND11_INC    := $(shell python3 -c "import pybind11; print(pybind11.get_include())" 2>/dev/null)
+    PYTHON_INC      := $(shell python3-config --includes 2>/dev/null)
+    PYTHON_LDFLAGS  := $(shell python3-config --ldflags --embed 2>/dev/null)
+    ifneq ($(PYBIND11_INC),)
+        NATIVE_CXXFLAGS += -DHAVE_PYBIND11 -I$(PYBIND11_INC) $(PYTHON_INC)
+        NATIVE_LIBS     += $(PYTHON_LDFLAGS)
+    endif
 endif
 ifeq ($(UNAME_S),Darwin)
     NATIVE_LIBS     += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo \
                        `sdl2-config --libs` -lcurl
     NATIVE_CXXFLAGS += `sdl2-config --cflags` -I/usr/local/include -I/opt/local/include \
                        -DGL_SILENCE_DEPRECATION
+    PYBIND11_INC    := $(shell python3 -c "import pybind11; print(pybind11.get_include())" 2>/dev/null)
+    PYTHON_INC      := $(shell python3-config --includes 2>/dev/null)
+    PYTHON_LDFLAGS  := $(shell python3-config --ldflags --embed 2>/dev/null)
+    ifneq ($(PYBIND11_INC),)
+        NATIVE_CXXFLAGS += -DHAVE_PYBIND11 -I$(PYBIND11_INC) $(PYTHON_INC)
+        NATIVE_LIBS     += $(PYTHON_LDFLAGS)
+    endif
 endif
 ifeq ($(OS),Windows_NT)
     NATIVE_BIN      := $(NATIVE_BUILD_DIR)/$(APP).exe

@@ -6,7 +6,7 @@
 #include "imgui.h"
 
 enum class FieldType    { NUMBER, TIMESTAMP, STRING };
-enum class SourceType   { CSV_FILE, HTTP_GET, FORMULA };
+enum class SourceType   { CSV_FILE, HTTP_GET, FORMULA, YFINANCE };
 enum class StreamStatus { IDLE, LOADING, OK, ERROR_STATE };
 enum class PlotType     { LINE, SCATTER, BAR, STEP };
 
@@ -37,6 +37,12 @@ struct CsvSource {
     std::string raw_text;           // full file contents
 };
 
+struct YFinanceSource {
+    std::string ticker;                   // e.g. "AAPL"
+    std::string period   = "1mo";         // e.g. "1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"
+    std::string interval = "1d";          // e.g. "1m","5m","15m","1h","1d","1wk","1mo"
+};
+
 struct FormulaBinding {
     std::string alias;        // identifier used in expression, e.g. "births"
     uint32_t    stream_id = 0;
@@ -55,8 +61,9 @@ struct DataStream {
     uint32_t     id = 0;
     std::string  name;
     SourceType   source_type = SourceType::CSV_FILE;
-    CsvSource    csv_source;
-    HttpSource   http_source;
+    CsvSource      csv_source;
+    HttpSource     http_source;
+    YFinanceSource yf_source;
     std::vector<FieldDef> schema;
     std::unordered_map<std::string, std::vector<double>>      columns;
     std::unordered_map<std::string, std::vector<std::string>> str_columns;
