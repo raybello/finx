@@ -36,7 +36,7 @@ std::string build_url(const std::string& url_template,
     std::string query;
     for (const auto& kv : params) {
         std::string placeholder = "{" + kv.first + "}";
-        if (result.find(placeholder) == std::string::npos) {
+        if (url_template.find(placeholder) == std::string::npos) {
             // param not used as template var — append to query string
             if (!query.empty()) query += "&";
             query += kv.first + "=" + kv.second;
