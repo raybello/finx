@@ -322,11 +322,18 @@ struct AddStreamState {
 
 static AddStreamState g_state;
 static HttpSource     g_http_draft;
+static uint32_t       g_edit_http_id = 0; // nonzero while editing an existing HTTP stream
 
 HttpSource modals_get_http_draft()                    { return g_http_draft; }
 void       modals_set_http_draft(const HttpSource& s) { g_http_draft = s; }
 
 void modals_request_add_stream() {
+    g_edit_http_id       = 0;
+    g_state.pending_open = true;
+}
+
+void modals_request_edit_http(uint32_t stream_id) {
+    g_edit_http_id       = stream_id;
     g_state.pending_open = true;
 }
 
@@ -487,27 +494,56 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     // Open the popup if requested
     if (g_state.pending_open) {
         g_state.pending_open = false;
-        // Pre-fill HTTP fields from the last-used draft so the user doesn't have to retype them
-        if (!g_http_draft.url_template.empty()) {
-            std::strncpy(g_state.url_buf, g_http_draft.url_template.c_str(), sizeof(g_state.url_buf) - 1);
-            std::strncpy(g_state.json_path, g_http_draft.json_path.c_str(), sizeof(g_state.json_path) - 1);
+        if (g_edit_http_id != 0) {
+            // Edit mode: pre-fill from the existing stream's settings
+            DataStream* eds = ss.find(g_edit_http_id);
+            if (eds && eds->source_type == SourceType::HTTP_GET) {
+                std::strncpy(g_state.name, eds->name.c_str(), sizeof(g_state.name) - 1);
+                g_state.source_type_idx = 1;
+                std::strncpy(g_state.url_buf,   eds->http_source.url_template.c_str(), sizeof(g_state.url_buf)   - 1);
+                std::strncpy(g_state.json_path,  eds->http_source.json_path.c_str(),   sizeof(g_state.json_path)  - 1);
+                switch (eds->http_source.response_format) {
+                    case ResponseFormat::JSON: g_state.response_fmt_idx = 1; break;
+                    case ResponseFormat::CSV:  g_state.response_fmt_idx = 2; break;
+                    default:                   g_state.response_fmt_idx = 0; break;
+                }
+                for (const auto& [k, v] : eds->http_source.params) {
+                    ParamRow r;
+                    std::strncpy(r.key, k.c_str(), sizeof(r.key) - 1);
+                    std::strncpy(r.val, v.c_str(), sizeof(r.val) - 1);
+                    g_state.params.push_back(r);
+                }
+                for (const auto& fm : eds->http_source.field_map) {
+                    FMapRow r;
+                    std::strncpy(r.out, fm.output_name.c_str(), sizeof(r.out) - 1);
+                    std::strncpy(r.key, fm.json_key.c_str(),    sizeof(r.key) - 1);
+                    switch (fm.type) {
+                        case FieldType::TIMESTAMP: r.type_idx = 1; break;
+                        case FieldType::STRING:    r.type_idx = 2; break;
+                        default:                   r.type_idx = 0; break;
+                    }
+                    g_state.fmap.push_back(r);
+                }
+            }
+        } else if (!g_http_draft.url_template.empty()) {
+            // Create mode: pre-fill from the last-used draft
+            std::strncpy(g_state.url_buf,  g_http_draft.url_template.c_str(), sizeof(g_state.url_buf)  - 1);
+            std::strncpy(g_state.json_path, g_http_draft.json_path.c_str(),   sizeof(g_state.json_path) - 1);
             switch (g_http_draft.response_format) {
                 case ResponseFormat::JSON: g_state.response_fmt_idx = 1; break;
                 case ResponseFormat::CSV:  g_state.response_fmt_idx = 2; break;
                 default:                   g_state.response_fmt_idx = 0; break;
             }
-            g_state.params.clear();
             for (const auto& [k, v] : g_http_draft.params) {
                 ParamRow r;
                 std::strncpy(r.key, k.c_str(), sizeof(r.key) - 1);
                 std::strncpy(r.val, v.c_str(), sizeof(r.val) - 1);
                 g_state.params.push_back(r);
             }
-            g_state.fmap.clear();
             for (const auto& fm : g_http_draft.field_map) {
                 FMapRow r;
                 std::strncpy(r.out, fm.output_name.c_str(), sizeof(r.out) - 1);
-                std::strncpy(r.key, fm.json_key.c_str(), sizeof(r.key) - 1);
+                std::strncpy(r.key, fm.json_key.c_str(),    sizeof(r.key) - 1);
                 switch (fm.type) {
                     case FieldType::TIMESTAMP: r.type_idx = 1; break;
                     case FieldType::STRING:    r.type_idx = 2; break;
@@ -525,6 +561,12 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         return;
     }
 
+    // ── Edit-mode banner ────────────────────────────────────────────────────
+    if (g_edit_http_id != 0) {
+        ImGui::TextColored(ImVec4(0.9f, 0.65f, 0.1f, 1.0f), "Editing HTTP Stream");
+        ImGui::Spacing();
+    }
+
     // ── Name ────────────────────────────────────────────────────────────────
     ImGui::Text("Stream Name");
     ImGui::SameLine();
@@ -533,17 +575,19 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
     ImGui::Spacing();
 
-    // ── Source type tabs ────────────────────────────────────────────────────
-    if (ImGui::RadioButton("CSV File", g_state.source_type_idx == 0)) {
-        g_state.source_type_idx = 0;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("HTTP GET", g_state.source_type_idx == 1)) {
-        g_state.source_type_idx = 1;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Formula", g_state.source_type_idx == 2)) {
-        g_state.source_type_idx = 2;
+    // ── Source type tabs (hidden in edit mode — type is fixed) ──────────────
+    if (g_edit_http_id == 0) {
+        if (ImGui::RadioButton("CSV File", g_state.source_type_idx == 0)) {
+            g_state.source_type_idx = 0;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("HTTP GET", g_state.source_type_idx == 1)) {
+            g_state.source_type_idx = 1;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Formula", g_state.source_type_idx == 2)) {
+            g_state.source_type_idx = 2;
+        }
     }
 
     ImGui::Separator();
@@ -774,7 +818,8 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
     if (!can_confirm) ImGui::BeginDisabled();
 
-    const char* confirm_label = is_formula ? "Open Formula Builder" : "Confirm";
+    const char* confirm_label = (g_edit_http_id != 0) ? "Save Changes"
+                              : (is_formula ? "Open Formula Builder" : "Confirm");
     if (ImGui::Button(confirm_label, ImVec2(160, 0))) {
         g_state.modal_error.clear();
         if (g_state.source_type_idx == 0) {
@@ -804,8 +849,13 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                 }
                 src.field_map.push_back(e);
             }
-            g_http_draft = src; // remember for next open
-            ss.add_http(g_state.name, src);
+            if (g_edit_http_id != 0) {
+                ss.update_http(g_edit_http_id, g_state.name, src);
+                g_edit_http_id = 0;
+            } else {
+                g_http_draft = src; // remember for next open (create mode only)
+                ss.add_http(g_state.name, src);
+            }
             g_state = AddStreamState{};
             ImGui::CloseCurrentPopup();
         } else {
@@ -821,6 +871,7 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     ImGui::SameLine();
 
     if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        g_edit_http_id = 0;
         g_state = AddStreamState{};
         ImGui::CloseCurrentPopup();
     }

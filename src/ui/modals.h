@@ -8,6 +8,9 @@ class PlotStore;
 // Open the "Add Data Stream" modal on next frame
 void modals_request_add_stream();
 
+// Open the modal pre-filled with an existing HTTP stream's settings for editing
+void modals_request_edit_http(uint32_t stream_id);
+
 // True if a CSV file has been loaded from the browser file picker
 bool modals_csv_pending();
 
