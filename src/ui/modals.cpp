@@ -311,6 +311,7 @@ struct AddStreamState {
     // HTTP
     char                  url_buf[512]   = {};
     std::vector<ParamRow> params;
+    int                   response_fmt_idx = 0;  // 0=Auto, 1=JSON, 2=CSV
     char                  json_path[256] = "results";
     std::vector<FMapRow>  fmap;
     bool                  http_test_ok   = false;
@@ -449,8 +450,14 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
     if (g_http_test.ready) {
         g_http_test.ready = false;
         if (g_http_test.ok) {
-            // Build field_map from current fmap state
-            std::vector<FieldMapEntry> fm;
+            // Build a temporary HttpSource so we can call extract_response
+            HttpSource tmp;
+            tmp.json_path = g_state.json_path;
+            switch (g_state.response_fmt_idx) {
+                case 1: tmp.response_format = ResponseFormat::JSON; break;
+                case 2: tmp.response_format = ResponseFormat::CSV;  break;
+                default: tmp.response_format = ResponseFormat::AUTO; break;
+            }
             for (const auto& r : g_state.fmap) {
                 FieldMapEntry e;
                 e.output_name = r.out;
@@ -460,9 +467,9 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
                     case 2: e.type = FieldType::STRING;    break;
                     default: e.type = FieldType::NUMBER;   break;
                 }
-                fm.push_back(e);
+                tmp.field_map.push_back(e);
             }
-            ParsedTable t = extract_json(g_http_test.body, g_state.json_path, fm);
+            ParsedTable t = extract_response(g_http_test.body, tmp);
             if (!t.error.empty()) {
                 g_state.modal_error  = t.error;
                 g_state.http_test_ok = false;
@@ -484,6 +491,11 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
         if (!g_http_draft.url_template.empty()) {
             std::strncpy(g_state.url_buf, g_http_draft.url_template.c_str(), sizeof(g_state.url_buf) - 1);
             std::strncpy(g_state.json_path, g_http_draft.json_path.c_str(), sizeof(g_state.json_path) - 1);
+            switch (g_http_draft.response_format) {
+                case ResponseFormat::JSON: g_state.response_fmt_idx = 1; break;
+                case ResponseFormat::CSV:  g_state.response_fmt_idx = 2; break;
+                default:                   g_state.response_fmt_idx = 0; break;
+            }
             g_state.params.clear();
             for (const auto& [k, v] : g_http_draft.params) {
                 ParamRow r;
@@ -601,6 +613,18 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
         ImGui::Spacing();
 
+        // Response format
+        ImGui::Text("Response Format");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Auto##fmt",  g_state.response_fmt_idx == 0)) g_state.response_fmt_idx = 0;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("JSON##fmt",  g_state.response_fmt_idx == 1)) g_state.response_fmt_idx = 1;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("CSV##fmt",   g_state.response_fmt_idx == 2)) g_state.response_fmt_idx = 2;
+        ImGui::TextDisabled("Auto detects JSON ({...}) vs CSV automatically");
+
+        ImGui::Spacing();
+
         // Params table
         ImGui::Text("Parameters");
         if (ImGui::BeginTable("##params_table", 3,
@@ -638,55 +662,61 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
 
         ImGui::Spacing();
 
-        // JSON path
-        ImGui::Text("JSON Path (dot-separated)");
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText("##json_path", g_state.json_path, sizeof(g_state.json_path));
+        // JSON-only fields: path + field map (hidden when CSV format is selected)
+        if (g_state.response_fmt_idx != 2) {
+            // JSON path
+            ImGui::Text("JSON Path (dot-separated)");
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputText("##json_path", g_state.json_path, sizeof(g_state.json_path));
 
-        ImGui::Spacing();
+            ImGui::Spacing();
 
-        // Field map table
-        ImGui::Text("Field Map");
-        static const char* type_labels[] = { "Number", "Timestamp", "String" };
-        if (ImGui::BeginTable("##fmap_table", 4,
-                               ImGuiTableFlags_Borders |
-                               ImGuiTableFlags_RowBg   |
-                               ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("Output Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-            ImGui::TableSetupColumn("JSON Key",    ImGuiTableColumnFlags_WidthStretch, 0.3f);
-            ImGui::TableSetupColumn("Type",        ImGuiTableColumnFlags_WidthStretch, 0.25f);
-            ImGui::TableSetupColumn("Del",         ImGuiTableColumnFlags_WidthFixed,   40.0f);
-            ImGui::TableHeadersRow();
+            // Field map table
+            ImGui::Text("Field Map");
+            static const char* type_labels[] = { "Number", "Timestamp", "String" };
+            if (ImGui::BeginTable("##fmap_table", 4,
+                                   ImGuiTableFlags_Borders |
+                                   ImGuiTableFlags_RowBg   |
+                                   ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Output Name", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                ImGui::TableSetupColumn("JSON Key",    ImGuiTableColumnFlags_WidthStretch, 0.3f);
+                ImGui::TableSetupColumn("Type",        ImGuiTableColumnFlags_WidthStretch, 0.25f);
+                ImGui::TableSetupColumn("Del",         ImGuiTableColumnFlags_WidthFixed,   40.0f);
+                ImGui::TableHeadersRow();
 
-            int del_fm = -1;
-            for (int i = 0; i < (int)g_state.fmap.size(); ++i) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::SetNextItemWidth(-1.0f);
-                char oid[32]; std::snprintf(oid, sizeof(oid), "##fo%d", i);
-                ImGui::InputText(oid, g_state.fmap[i].out, sizeof(g_state.fmap[i].out));
-                ImGui::TableSetColumnIndex(1);
-                ImGui::SetNextItemWidth(-1.0f);
-                char kid[32]; std::snprintf(kid, sizeof(kid), "##fk%d", i);
-                ImGui::InputText(kid, g_state.fmap[i].key, sizeof(g_state.fmap[i].key));
-                ImGui::TableSetColumnIndex(2);
-                ImGui::SetNextItemWidth(-1.0f);
-                char tid[32]; std::snprintf(tid, sizeof(tid), "##ft%d", i);
-                ImGui::Combo(tid, &g_state.fmap[i].type_idx, type_labels, 3);
-                ImGui::TableSetColumnIndex(3);
-                char fdelid[32]; std::snprintf(fdelid, sizeof(fdelid), "X##fmdel%d", i);
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.1f, 1.0f));
-                if (ImGui::SmallButton(fdelid)) del_fm = i;
-                ImGui::PopStyleColor();
+                int del_fm = -1;
+                for (int i = 0; i < (int)g_state.fmap.size(); ++i) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char oid[32]; std::snprintf(oid, sizeof(oid), "##fo%d", i);
+                    ImGui::InputText(oid, g_state.fmap[i].out, sizeof(g_state.fmap[i].out));
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char kid[32]; std::snprintf(kid, sizeof(kid), "##fk%d", i);
+                    ImGui::InputText(kid, g_state.fmap[i].key, sizeof(g_state.fmap[i].key));
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char tid[32]; std::snprintf(tid, sizeof(tid), "##ft%d", i);
+                    ImGui::Combo(tid, &g_state.fmap[i].type_idx, type_labels, 3);
+                    ImGui::TableSetColumnIndex(3);
+                    char fdelid[32]; std::snprintf(fdelid, sizeof(fdelid), "X##fmdel%d", i);
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.1f, 1.0f));
+                    if (ImGui::SmallButton(fdelid)) del_fm = i;
+                    ImGui::PopStyleColor();
+                }
+                if (del_fm >= 0) g_state.fmap.erase(g_state.fmap.begin() + del_fm);
+                ImGui::EndTable();
             }
-            if (del_fm >= 0) g_state.fmap.erase(g_state.fmap.begin() + del_fm);
-            ImGui::EndTable();
-        }
-        if (ImGui::SmallButton("+ Add Field")) {
-            g_state.fmap.emplace_back();
-        }
+            if (ImGui::SmallButton("+ Add Field")) {
+                g_state.fmap.emplace_back();
+            }
 
-        ImGui::Spacing();
+            ImGui::Spacing();
+        } else {
+            ImGui::TextDisabled("CSV columns are detected automatically from the response headers.");
+            ImGui::Spacing();
+        }
 
         // Test fetch button
         if (ImGui::Button("Test Fetch")) {
@@ -755,6 +785,11 @@ void modals_render(StreamStore& ss, PlotStore& /*ps*/) {
             HttpSource src;
             src.url_template = g_state.url_buf;
             src.json_path    = g_state.json_path;
+            switch (g_state.response_fmt_idx) {
+                case 1: src.response_format = ResponseFormat::JSON; break;
+                case 2: src.response_format = ResponseFormat::CSV;  break;
+                default: src.response_format = ResponseFormat::AUTO; break;
+            }
             for (const auto& r : g_state.params) {
                 if (r.key[0] != '\0') src.params.emplace_back(r.key, r.val);
             }
