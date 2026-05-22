@@ -66,6 +66,14 @@ uint32_t StreamStore::add_http(const std::string& name, const HttpSource& src) {
     return id;
 }
 
+void StreamStore::update_http(uint32_t id, const std::string& name, const HttpSource& src) {
+    DataStream* ds = find(id);
+    if (!ds || ds->source_type != SourceType::HTTP_GET) return;
+    ds->name        = name;
+    ds->http_source = src;
+    refresh(id);
+}
+
 void StreamStore::refresh(uint32_t id) {
     DataStream* ds = find(id);
     if (!ds) return;

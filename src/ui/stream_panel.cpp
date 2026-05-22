@@ -34,11 +34,11 @@ void render_stream_panel(App& app) {
                        ImVec2(-1, ImGui::GetContentRegionAvail().y - 66.0f),
                        false);
 
-    uint32_t delete_id  = 0;
-    uint32_t refresh_id = 0;
-
-    uint32_t recalc_id = 0;
+    uint32_t delete_id       = 0;
+    uint32_t refresh_id      = 0;
+    uint32_t recalc_id       = 0;
     uint32_t edit_formula_id = 0;
+    uint32_t edit_http_id    = 0;
 
     for (auto& ds : streams) {
         // Icon tag
@@ -59,6 +59,11 @@ void render_stream_panel(App& app) {
             default:                        dot_color = {0.5f,0.5f,0.5f,1.0f}; break;
         }
 
+        // Wrap the entire item (header row + expanded tree) in a group so that
+        // right-clicking anywhere — header OR expanded content — triggers the
+        // context menu via the group's bounding box.
+        ImGui::BeginGroup();
+
         // Selectable row
         char label[256];
         std::snprintf(label, sizeof(label), "%s %s##sid%u",
@@ -73,29 +78,11 @@ void render_stream_panel(App& app) {
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - 4.0f);
         ImGui::TextColored(dot_color, "*");
 
-        // Context menu
-        if (ImGui::BeginPopupContextItem(label)) {
-            if (ds.source_type == SourceType::HTTP_GET) {
-                if (ImGui::MenuItem("Refresh")) refresh_id = ds.id;
-            }
-            if (ds.source_type == SourceType::FORMULA) {
-                if (ImGui::MenuItem("Edit Formula"))   edit_formula_id = ds.id;
-                if (ImGui::MenuItem("Recalculate"))    recalc_id       = ds.id;
-            }
-            if (ImGui::MenuItem("Delete")) delete_id = ds.id;
-            ImGui::EndPopup();
-        }
-
         // Tooltip: show error if status is error
         if (ds.status == StreamStatus::ERROR_STATE && !ds.error_msg.empty()) {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Error: %s", ds.error_msg.c_str());
             }
-        }
-
-        // Expanded info
-        if (selected || ImGui::IsItemClicked()) {
-            // handled below via TreeNode if double-clicked
         }
 
         // Show schema info in an indented tree node
@@ -123,6 +110,28 @@ void render_stream_panel(App& app) {
             ImGui::TreePop();
         }
 
+        ImGui::EndGroup();
+
+        // Context menu: right-click anywhere on the whole group (header + tree content)
+        char ctx_id[64];
+        std::snprintf(ctx_id, sizeof(ctx_id), "##ctx%u", ds.id);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            ImGui::OpenPopup(ctx_id);
+        }
+        if (ImGui::BeginPopup(ctx_id)) {
+            if (ds.source_type == SourceType::HTTP_GET) {
+                if (ImGui::MenuItem("Refresh"))         refresh_id   = ds.id;
+                if (ImGui::MenuItem("Edit Settings...")) edit_http_id = ds.id;
+            }
+            if (ds.source_type == SourceType::FORMULA) {
+                if (ImGui::MenuItem("Edit Formula"))   edit_formula_id = ds.id;
+                if (ImGui::MenuItem("Recalculate"))    recalc_id       = ds.id;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete")) delete_id = ds.id;
+            ImGui::EndPopup();
+        }
+
         ImGui::Spacing();
     }
 
@@ -141,6 +150,7 @@ void render_stream_panel(App& app) {
     if (refresh_id)      app.stream_store.refresh(refresh_id);
     if (recalc_id)       app.stream_store.evaluate_formula(recalc_id);
     if (edit_formula_id) formula_builder_request_open(edit_formula_id);
+    if (edit_http_id)    modals_request_edit_http(edit_http_id);
 
     ImGui::End();
 }
