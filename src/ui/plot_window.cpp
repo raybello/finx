@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cmath>
+#include <ctime>
 
 void render_plot_windows(App& app) {
     auto& plots = app.plot_store.all();
@@ -171,6 +172,56 @@ void render_plot_windows(App& app) {
                     break;
                 }
             }
+        }
+
+        // Crosshair value tooltip
+        if (ImPlot::IsPlotHovered()) {
+            ImPlotPoint mouse = ImPlot::GetPlotMousePos();
+            ImGui::BeginTooltip();
+
+            if (x_is_time) {
+                time_t t = (time_t)mouse.x;
+                char buf[32];
+                strftime(buf, sizeof(buf), "%Y-%m-%d", gmtime(&t));
+                ImGui::TextUnformatted(buf);
+            } else {
+                ImGui::Text("x = %.6g", mouse.x);
+            }
+
+            bool any = false;
+            for (int si = 0; si < (int)plot.series.size(); ++si) {
+                const PlotSeries& ser = plot.series[si];
+                DataStream* ds = app.stream_store.find(ser.stream_id);
+                if (!ds || ds->status != StreamStatus::OK) continue;
+                if (ser.x_field.empty() || ser.y_field.empty()) continue;
+
+                auto it_x = ds->columns.find(ser.x_field);
+                auto it_y = ds->columns.find(ser.y_field);
+                if (it_x == ds->columns.end() || it_y == ds->columns.end()) continue;
+
+                const auto& xs = it_x->second;
+                const auto& ys = it_y->second;
+                size_t n = std::min(xs.size(), ys.size());
+                if (n == 0) continue;
+
+                // Nearest-neighbour by X distance
+                size_t best = 0;
+                double best_dist = std::fabs(xs[0] - mouse.x);
+                for (size_t j = 1; j < n; ++j) {
+                    double d = std::fabs(xs[j] - mouse.x);
+                    if (d < best_dist) { best_dist = d; best = j; }
+                }
+
+                if (!any) { ImGui::Separator(); any = true; }
+                std::string lbl = ser.label.empty()
+                    ? ("Series " + std::to_string(si + 1))
+                    : ser.label;
+                double yv = ys[best];
+                if (!std::isnan(yv))
+                    ImGui::TextColored(ser.color, "%s: %.6g", lbl.c_str(), yv);
+            }
+
+            ImGui::EndTooltip();
         }
 
         ImPlot::EndPlot();

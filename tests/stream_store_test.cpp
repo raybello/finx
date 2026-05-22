@@ -289,3 +289,147 @@ TEST(StreamStore, Poll_DoesNotCrash) {
     EXPECT_NO_THROW(ss.poll());
     EXPECT_NO_THROW(ss.poll());
 }
+
+// ── window function formulas ──────────────────────────────────────────────────
+
+static uint32_t make_price_stream(StreamStore& ss) {
+    // 6-row stream: t=1..6, close=10,20,30,40,50,60
+    return ss.add_csv("prices", "p.csv",
+                      "t,close\n1,10\n2,20\n3,30\n4,40\n5,50\n6,60\n");
+}
+
+static uint32_t add_window_formula(StreamStore& ss, uint32_t src_id,
+                                    const std::string& expr,
+                                    const std::string& result = "out") {
+    FormulaSource fsrc;
+    fsrc.expression  = expr;
+    fsrc.result_name = result;
+    fsrc.x_stream_id = src_id;
+    fsrc.x_field     = "t";
+    fsrc.bindings    = {{"close", src_id, "close"}};
+    return ss.add_formula("w", fsrc);
+}
+
+TEST(StreamStore, WindowSMA_WarmupIsNaN) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    uint32_t fid = add_window_formula(ss, src, "sma(close, 3)");
+    DataStream* ds = ss.find(fid);
+    ASSERT_NE(ds, nullptr);
+    EXPECT_EQ(ds->status, StreamStatus::OK);
+    EXPECT_EQ(ds->row_count, 6u);
+    const auto& out = ds->columns.at("out");
+    EXPECT_TRUE(std::isnan(out[0]));
+    EXPECT_TRUE(std::isnan(out[1]));
+    // sma(3) of [10,20,30] = 20
+    EXPECT_DOUBLE_EQ(out[2], 20.0);
+    // sma(3) of [20,30,40] = 30
+    EXPECT_DOUBLE_EQ(out[3], 30.0);
+}
+
+TEST(StreamStore, WindowSMA_Values) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    uint32_t fid = add_window_formula(ss, src, "sma(close, 3)");
+    const auto& out = ss.find(fid)->columns.at("out");
+    EXPECT_DOUBLE_EQ(out[4], 40.0);  // (30+40+50)/3
+    EXPECT_DOUBLE_EQ(out[5], 50.0);  // (40+50+60)/3
+}
+
+TEST(StreamStore, WindowEMA_ValidFromPeriodOnward) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    uint32_t fid = add_window_formula(ss, src, "ema(close, 3)");
+    DataStream* ds = ss.find(fid);
+    ASSERT_NE(ds, nullptr);
+    EXPECT_EQ(ds->status, StreamStatus::OK);
+    const auto& out = ds->columns.at("out");
+    EXPECT_TRUE(std::isnan(out[0]));
+    EXPECT_TRUE(std::isnan(out[1]));
+    // seed = sma(3) of [10,20,30] = 20
+    EXPECT_DOUBLE_EQ(out[2], 20.0);
+    // ema: k=0.5, out[3] = 40*0.5 + 20*0.5 = 30
+    EXPECT_DOUBLE_EQ(out[3], 30.0);
+}
+
+TEST(StreamStore, WindowStddev_Values) {
+    StreamStore ss;
+    // Simple: 3 rows all same value → stddev = 0
+    uint32_t src = ss.add_csv("c", "c.csv", "t,x\n1,5\n2,5\n3,5\n4,5\n");
+    FormulaSource fsrc;
+    fsrc.expression  = "stddev(x, 3)";
+    fsrc.result_name = "sd";
+    fsrc.x_stream_id = src;
+    fsrc.x_field     = "t";
+    fsrc.bindings    = {{"x", src, "x"}};
+    uint32_t fid = ss.add_formula("sd", fsrc);
+    DataStream* ds = ss.find(fid);
+    ASSERT_NE(ds, nullptr);
+    EXPECT_EQ(ds->status, StreamStatus::OK);
+    EXPECT_DOUBLE_EQ(ds->columns.at("sd")[2], 0.0);
+    EXPECT_DOUBLE_EQ(ds->columns.at("sd")[3], 0.0);
+}
+
+TEST(StreamStore, WindowRmin_Rmax) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    uint32_t rmin_fid = add_window_formula(ss, src, "rmin(close, 3)", "lo");
+    uint32_t rmax_fid = add_window_formula(ss, src, "rmax(close, 3)", "hi");
+    const auto& lo = ss.find(rmin_fid)->columns.at("lo");
+    const auto& hi = ss.find(rmax_fid)->columns.at("hi");
+    // window at row 2 = [10,20,30]
+    EXPECT_DOUBLE_EQ(lo[2], 10.0);
+    EXPECT_DOUBLE_EQ(hi[2], 30.0);
+}
+
+TEST(StreamStore, WindowROC_Values) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    uint32_t fid = add_window_formula(ss, src, "roc(close, 1)");
+    const auto& out = ss.find(fid)->columns.at("out");
+    EXPECT_TRUE(std::isnan(out[0]));
+    // roc(1) at row 1: (20-10)/10*100 = 100
+    EXPECT_DOUBLE_EQ(out[1], 100.0);
+    // roc(1) at row 2: (30-20)/20*100 = 50
+    EXPECT_DOUBLE_EQ(out[2], 50.0);
+}
+
+TEST(StreamStore, WindowSMA_InExpression) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    // (close - sma(close, 3)) at row 2: 30 - 20 = 10
+    uint32_t fid = add_window_formula(ss, src, "close - sma(close, 3)");
+    const auto& out = ss.find(fid)->columns.at("out");
+    EXPECT_TRUE(std::isnan(out[0]));
+    EXPECT_TRUE(std::isnan(out[1]));
+    EXPECT_DOUBLE_EQ(out[2], 10.0);  // 30 - 20
+    EXPECT_DOUBLE_EQ(out[3], 10.0);  // 40 - 30
+}
+
+TEST(StreamStore, WindowInvalidSyntax_Error) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    // First arg is an expression, not a variable — should fail
+    FormulaSource fsrc;
+    fsrc.expression  = "sma(close + 1, 3)";
+    fsrc.result_name = "out";
+    fsrc.x_stream_id = src;
+    fsrc.x_field     = "t";
+    fsrc.bindings    = {{"close", src, "close"}};
+    uint32_t fid = ss.add_formula("bad", fsrc);
+    EXPECT_EQ(ss.find(fid)->status, StreamStatus::ERROR_STATE);
+}
+
+TEST(StreamStore, WindowUnknownAlias_Error) {
+    StreamStore ss;
+    uint32_t src = make_price_stream(ss);
+    // Alias "price" not in bindings
+    FormulaSource fsrc;
+    fsrc.expression  = "sma(price, 3)";
+    fsrc.result_name = "out";
+    fsrc.x_stream_id = src;
+    fsrc.x_field     = "t";
+    fsrc.bindings    = {{"close", src, "close"}};
+    uint32_t fid = ss.add_formula("bad", fsrc);
+    EXPECT_EQ(ss.find(fid)->status, StreamStatus::ERROR_STATE);
+}

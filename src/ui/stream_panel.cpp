@@ -3,6 +3,7 @@
 #include "ui/formula_builder.h"
 #include "app.h"
 #include "data/stream_store.h"
+#include "io/csv_exporter.h"
 #include "io/yfinance_client.h"
 #include "imgui.h"
 #include <cstdio>
@@ -41,6 +42,12 @@ void render_stream_panel(App& app) {
     uint32_t edit_formula_id = 0;
     uint32_t edit_http_id    = 0;
     uint32_t edit_yf_id      = 0;
+    uint32_t view_table_id   = 0;
+    uint32_t export_csv_id   = 0;
+
+    // Brief export status message: (message, expiry_time)
+    static char    s_export_msg[256]  = {};
+    static double  s_export_msg_time  = -999.0;
 
     for (auto& ds : streams) {
         const char* type_tag;
@@ -99,6 +106,13 @@ void render_stream_panel(App& app) {
                 if (ImGui::MenuItem("Recalculate")) recalc_id        = ds.id;
             }
             ImGui::Separator();
+            if (ds.status == StreamStatus::OK) {
+                if (ImGui::MenuItem("View Data Table")) view_table_id = ds.id;
+#ifndef __EMSCRIPTEN__
+                if (ImGui::MenuItem("Export to CSV"))   export_csv_id = ds.id;
+#endif
+                ImGui::Separator();
+            }
             if (ImGui::MenuItem("Delete")) delete_id = ds.id;
             ImGui::EndPopup();
         }
@@ -153,6 +167,23 @@ void render_stream_panel(App& app) {
     if (edit_formula_id) formula_builder_request_open(edit_formula_id);
     if (edit_http_id)    modals_request_edit_http(edit_http_id);
     if (edit_yf_id)      modals_request_edit_yfinance(edit_yf_id);
+    if (view_table_id)   app.open_tables.insert(view_table_id);
+
+#ifndef __EMSCRIPTEN__
+    if (export_csv_id) {
+        DataStream* eds = app.stream_store.find(export_csv_id);
+        if (eds) {
+            std::string path = csv_export_default_path(*eds);
+            bool ok = export_stream_csv(*eds, path);
+            std::snprintf(s_export_msg, sizeof(s_export_msg),
+                          ok ? "Exported: %s" : "Export failed: %s", path.c_str());
+            s_export_msg_time = ImGui::GetTime();
+        }
+    }
+    if (s_export_msg[0] && (ImGui::GetTime() - s_export_msg_time) < 4.0) {
+        ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "%s", s_export_msg);
+    }
+#endif
 
     ImGui::End();
 }

@@ -210,3 +210,62 @@ TEST(ExprEval, SqrtNegative) {
     double v = eval("sqrt(-1)");
     EXPECT_TRUE(std::isnan(v));
 }
+
+// ── Window function eval (row-aware overload) ─────────────────────────────────
+
+static double eval_win(const std::string& expr, const VarMap& vars,
+                        size_t row, const WinCols& wc) {
+    auto r = parse_expr(expr);
+    if (!r.ok) return std::numeric_limits<double>::quiet_NaN();
+    return eval_node(r.root, vars, row, wc);
+}
+
+TEST(ExprEvalWindow, ParsesWindowFunctionAsCall) {
+    auto r = parse_expr("sma(close, 20)");
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(r.root.type, ExprNodeType::CALL);
+    EXPECT_EQ(r.root.name, "sma");
+    ASSERT_EQ(r.root.children.size(), 2u);
+    EXPECT_EQ(r.root.children[0].type, ExprNodeType::VARIABLE);
+    EXPECT_EQ(r.root.children[1].type, ExprNodeType::LITERAL);
+}
+
+TEST(ExprEvalWindow, LooksUpPrecomputedResult) {
+    WinCols wc;
+    wc["sma:x:3"] = {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::quiet_NaN(),
+                     20.0, 30.0, 40.0};
+    EXPECT_TRUE(std::isnan(eval_win("sma(x, 3)", {{"x", 1.0}}, 0, wc)));
+    EXPECT_DOUBLE_EQ(eval_win("sma(x, 3)", {{"x", 30.0}}, 2, wc), 20.0);
+    EXPECT_DOUBLE_EQ(eval_win("sma(x, 3)", {{"x", 40.0}}, 3, wc), 30.0);
+}
+
+TEST(ExprEvalWindow, WindowInArithmeticExpression) {
+    // x - sma(x, 2): x=3.0, sma result at row 2 = 2.5 → 0.5
+    WinCols wc;
+    wc["sma:x:2"] = {std::numeric_limits<double>::quiet_NaN(), 1.5, 2.5, 3.5};
+    double v = eval_win("x - sma(x, 2)", {{"x", 3.0}}, 2, wc);
+    EXPECT_DOUBLE_EQ(v, 0.5);
+}
+
+TEST(ExprEvalWindow, NestedWindowInScalarFunction) {
+    // abs(sma(x, 2)) at row 1 = abs(1.5)
+    WinCols wc;
+    wc["sma:x:2"] = {std::numeric_limits<double>::quiet_NaN(), 1.5, 2.5};
+    double v = eval_win("abs(sma(x, 2))", {{"x", 2.0}}, 1, wc);
+    EXPECT_DOUBLE_EQ(v, 1.5);
+}
+
+TEST(ExprEvalWindow, MissingKeyReturnsNaN) {
+    WinCols wc; // empty
+    double v = eval_win("sma(x, 5)", {{"x", 10.0}}, 0, wc);
+    EXPECT_TRUE(std::isnan(v));
+}
+
+TEST(ExprEvalWindow, AllWindowFunctionsParse) {
+    for (const char* expr : {"sma(x,5)", "ema(x,5)", "stddev(x,5)",
+                              "rmin(x,5)", "rmax(x,5)", "roc(x,5)"}) {
+        auto r = parse_expr(expr);
+        EXPECT_TRUE(r.ok) << "failed to parse: " << expr;
+    }
+}
