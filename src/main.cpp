@@ -111,6 +111,11 @@ int main(int /*argc*/, char** /*argv*/) {
     ImGui_ImplSDL2_InitForOpenGL(g_window, g_gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
+    // SF Pro font — falls back to ImGui built-in if the file is absent
+    if (!io.Fonts->AddFontFromFileTTF("assets/fonts/SF-Pro.ttf", 14.0f)) {
+        io.Fonts->AddFontDefault();
+    }
+
     g_app.init();
 
 #ifdef __EMSCRIPTEN__

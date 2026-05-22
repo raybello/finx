@@ -49,6 +49,7 @@ CXXFLAGS_WEB := \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s EXPORTED_RUNTIME_METHODS='["ccall","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
     -s EXPORTED_FUNCTIONS='["_main","_finx_csv_loaded","_finx_http_result"]' \
+    --preload-file assets \
     --shell-file shell.html
 
 web:
