@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
-#include <stdexcept>
 #include <cmath>
 
 // nlohmann JSON
@@ -53,31 +52,30 @@ std::string build_url(const std::string& url_template,
 // ── JSON extraction ────────────────────────────────────────────────────────
 
 static double parse_timestamp_value(const std::string& s) {
-    try {
-        double v = std::stod(s);
+    char* end;
+    double v = std::strtod(s.c_str(), &end);
+    if (end != s.c_str()) {
         if (v > 1e12) return v / 1000.0;
         return v;
-    } catch (...) {}
+    }
     // Try ISO date
     if (s.size() >= 10 && s[4] == '-' && s[7] == '-') {
         struct tm t{};
-        try {
-            t.tm_year = std::stoi(s.substr(0,4)) - 1900;
-            t.tm_mon  = std::stoi(s.substr(5,2)) - 1;
-            t.tm_mday = std::stoi(s.substr(8,2));
-            if (s.size() >= 19 && s[10] == 'T') {
-                t.tm_hour = std::stoi(s.substr(11,2));
-                t.tm_min  = std::stoi(s.substr(14,2));
-                t.tm_sec  = std::stoi(s.substr(17,2));
-            }
-            t.tm_isdst = -1;
+        t.tm_year = (int)std::strtol(s.substr(0,4).c_str(), nullptr, 10) - 1900;
+        t.tm_mon  = (int)std::strtol(s.substr(5,2).c_str(), nullptr, 10) - 1;
+        t.tm_mday = (int)std::strtol(s.substr(8,2).c_str(), nullptr, 10);
+        if (s.size() >= 19 && s[10] == 'T') {
+            t.tm_hour = (int)std::strtol(s.substr(11,2).c_str(), nullptr, 10);
+            t.tm_min  = (int)std::strtol(s.substr(14,2).c_str(), nullptr, 10);
+            t.tm_sec  = (int)std::strtol(s.substr(17,2).c_str(), nullptr, 10);
+        }
+        t.tm_isdst = -1;
 #ifdef _WIN32
-            time_t epoch = _mkgmtime(&t);
+        time_t epoch = _mkgmtime(&t);
 #else
-            time_t epoch = timegm(&t);
+        time_t epoch = timegm(&t);
 #endif
-            if (epoch != -1) return static_cast<double>(epoch);
-        } catch (...) {}
+        if (epoch != -1) return static_cast<double>(epoch);
     }
     return std::numeric_limits<double>::quiet_NaN();
 }
@@ -88,11 +86,9 @@ ParsedTable extract_json(const std::string& json_text,
 {
     ParsedTable result;
 
-    json root;
-    try {
-        root = json::parse(json_text);
-    } catch (const std::exception& ex) {
-        result.error = std::string("JSON parse error: ") + ex.what();
+    json root = json::parse(json_text, nullptr, false);
+    if (root.is_discarded()) {
+        result.error = "JSON parse error";
         return result;
     }
 
@@ -164,7 +160,10 @@ ParsedTable extract_json(const std::string& json_text,
                 if (val.is_number()) {
                     v = val.get<double>();
                 } else if (val.is_string()) {
-                    try { v = std::stod(val.get<std::string>()); } catch (...) { v = 0.0; }
+                    const std::string sv = val.get<std::string>();
+                    char* endp;
+                    v = std::strtod(sv.c_str(), &endp);
+                    if (endp == sv.c_str()) v = 0.0;
                 } else if (val.is_boolean()) {
                     v = val.get<bool>() ? 1.0 : 0.0;
                 }

@@ -2,6 +2,7 @@
 #include "app.h"
 #include "data/stream_store.h"
 #include "data/plot_store.h"
+#include "data/sample_data.h"
 #include "json.hpp"
 #include <string>
 #include <fstream>
@@ -232,13 +233,13 @@ void config_load(App& app) {
     }
 #endif
 
-    if (text.empty()) return;
+    if (text.empty()) {
+        load_sample_defaults(app);
+        return;
+    }
 
-    try {
-        json j = json::parse(text);
+    json j = json::parse(text, nullptr, false);
+    if (!j.is_discarded()) {
         deserialise_app(app, j);
-    } catch (const std::exception& ex) {
-        // Silently ignore corrupt config
-        (void)ex;
     }
 }
